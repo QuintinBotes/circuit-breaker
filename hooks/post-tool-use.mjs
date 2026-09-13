@@ -5,7 +5,7 @@
 // agent that writes "this confirms the leak" into the same place the exit code lives has
 // made its conclusion unfalsifiable by the next reader.
 
-import { CB, classifyTool, diffHash, load, save, withLock } from "../lib/controller.mjs";
+import { CB, classifyTool, load, save, withLock } from "../lib/controller.mjs";
 import { readHook, respond, rootFor } from "./io.mjs";
 
 const event = await readHook();
@@ -64,9 +64,12 @@ withLock(root, () => {
   command: action,
   exit,
   // The tail rather than the whole: what a person checking a claim needs is the summary
-  // line, and a megabyte of build output in a state file makes the file unreadable.
-  tail: text.split("\n").filter(Boolean).slice(-8).join("\n"),
-  diffHash: diffHash(root),
+  // line, and a megabyte of build output in a state file makes the file unreadable. Capped
+  // by bytes as well as lines, because one five-megabyte line is still one line.
+  tail: text.split("\n").filter(Boolean).slice(-8).join("\n").slice(-2000),
+  // No fingerprint here. This runs after every tool call, and computing one cost a full
+  // `git diff` each time, which is a second on a large repository. What actually needs a
+  // fingerprint (an experiment, a gate, a verification) records its own.
 });
   if (state.log.length > 500) state.log.splice(0, state.log.length - 500);
   save(state, root);

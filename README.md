@@ -72,7 +72,9 @@ cb experiment record --hypothesis <id> --command <cmd> --exit <n> \
                      --classification supports|falsifies|inconclusive [--artifact <path>]
 cb transition <state> [--hypothesis <id>]
 cb gate <id> --result pass|fail|unknown [--evidence <text>]
-cb check-stop                        # exit 2, and what is missing, if a claim is unsupported
+cb reproduce --command <cmd>         # name the symptom check; runnable in any state
+cb scratch [<glob>]                  # paths whose churn is not a change
+cb check-stop [--message <report>]   # 0 supported, 3 honestly unverified, 2 unsupported
 cb end                               # close the session
 ```
 
@@ -163,28 +165,33 @@ is read:
 - MCP tools are judged by their verb, so `mcp__filesystem__write_file` is a mutation
   wherever it comes from.
 
-## Known limits
+## Awkward corners, and what to do about them
 
-**Verification goes stale on incidental files.** A stray `isolate-*.log` from `node --prof`
-moves the fingerprint and invalidates a recorded verification. Add such files to
-`.gitignore`: everything git ignores is excluded from the fingerprint, which is what that
-exclusion is for.
+**Reproduce before you have a theory.** Running code is denied in `OBSERVE`, so name the
+symptom check once and it runs in any state:
 
-**The reproduction gate is critical, so an honest `unknown` will not pass `cb check-stop`.**
-That is deliberate for a fix to a bug you never reproduced. The `Stop` hook handles it
-properly: it blocks once, and on the next attempt lets the session end with the work
-labelled unverified. Only the CLI's exit code does not reflect that, so do not key a script
-on `check-stop` alone.
+```sh
+cb reproduce --command "./repro.sh"
+```
 
-**`PostToolUse` fingerprints the tree after every tool call**, which costs about a second on
-a repository with ten thousand changed files. That is git's own diff time. A project with no
-session open pays nothing.
+**Churn that is not the work.** A profiler log or a coverage directory appearing after a
+verification makes it stale. Declare it, and it stops counting. It goes on the record, so a
+reader can see exactly what was excluded:
 
-**Reproduce-first costs two transitions.** Running code is denied in `OBSERVE`, so the first
-hypothesis is usually the symptom itself and the reproduction is its experiment.
+```sh
+cb scratch 'isolate-*.log'
+```
 
-**A no-fix investigation cannot record gates.** `VERIFY` is reachable only from `PATCH`, so
-"I looked, and nothing needs changing" finishes by the no-change route instead.
+Anything in `.gitignore` is already excluded.
+
+**A bug that never reproduces.** `reproduction` is a critical gate and an honest `unknown`
+is not a pass, but it is not a dead end either. Record it with evidence, and the session may
+finish as long as the report says plainly that the work is not verified and why.
+`cb check-stop` exits 3 for that case, distinct from 2, which means the claim is simply
+unsupported.
+
+**An investigation that changes nothing.** `OBSERVE` and `EXPERIMENT` both lead to `VERIFY`,
+so "I looked, and nothing needs changing" can still put its evidence on the record.
 
 ## Limits
 
@@ -193,7 +200,8 @@ protects an answer is the evidence packet and the reading it does, not a change 
 For an expensive or irreversible change, send the same packet to a different provider.
 
 The state file is not a sandbox, and it is a discipline rather than a security boundary. An
-`EXPERIMENT` may run `node`, and `node` can write a file.
+`EXPERIMENT` may run `node`, and `node` can write a file. What it buys is that the careless
+path is blocked and the deliberate one is on the record.
 A person who types `cb transition patch` on the agent's behalf has still transitioned. This
 makes discipline the default and a lapse deliberate; it does not make a lapse impossible.
 
@@ -214,7 +222,7 @@ evals/              four cases built from real failures
 test/               real git repositories, the real CLI, no mocks
 ```
 
-`npm test` runs 67 tests against temporary git repositories driving `bin/cb` as a process,
+`npm test` runs 72 tests against temporary git repositories driving `bin/cb` as a process,
 plus an end-to-end script that pipes real Claude Code hook payloads through the real hooks.
 `npm run eval` scores the plugin against its four cases, with and without itself loaded; see
 [evals/README.md](evals/README.md).
