@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const CB = fileURLToPath(new URL("../bin/cb", import.meta.url));
@@ -847,5 +847,79 @@ describe("a tool the gate has never heard of", () => {
     for (const tool of ["mcp__filesystem__read_file", "mcp__anything__list_things"]) {
       assert.equal(cb(dir, ["check", "--tool", tool]).code, 0, tool);
     }
+  });
+});
+
+describe("the five things the workflow sweep said were awkward", () => {
+  let dir;
+  beforeEach(() => {
+    dir = repo().dir;
+    fs.writeFileSync(path.join(dir, "repro.sh"), "#!/bin/bash\nexit 0\n");
+    fs.chmodSync(path.join(dir, "repro.sh"), 0o755);
+    cb(dir, ["init"]);
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("reproduces_the_symptom_before_guessing_at_its_cause", () => {
+    // Running code is denied in OBSERVE, so reproduce-first, the first move in systematic
+    // debugging, was the one move the first state could not make. Establishing that a bug
+    // happens is not a causal claim, so it needs no hypothesis to justify it.
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "./repro.sh"], { expect: 2 }).code, 2);
+    cb(dir, ["reproduce", "--command", "./repro.sh"]);
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "./repro.sh"]).code, 0);
+    // Only that command, not a general licence to run scripts in OBSERVE.
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "./other.sh"], { expect: 2 }).code, 2);
+  });
+
+  it("lets_an_investigation_that_changes_nothing_record_what_it_checked", () => {
+    // VERIFY was reachable only from PATCH, so "I looked, and nothing needs changing" could
+    // never put its evidence on the record.
+    assert.match(cb(dir, ["transition", "verify"]).stdout, /OBSERVE -> VERIFY/);
+    cb(dir, ["gate", "reproduction", "--result", "pass", "--evidence", "runs clean on main"]);
+    cb(dir, ["gate", "unit", "--result", "pass", "--evidence", "18 passed"]);
+    assert.match(cb(dir, ["check-stop"]).stdout, /verified against the current tree/);
+  });
+
+  it("does_not_go_stale_on_churn_the_session_has_called_scratch", () => {
+    // A profiler log appearing after a verification invalidated it, and the only route to
+    // deleting the log ran back through PATCH: four transitions to remove a file.
+    cb(dir, ["transition", "verify"]);
+    cb(dir, ["gate", "reproduction", "--result", "pass", "--evidence", "ok"]);
+    cb(dir, ["gate", "unit", "--result", "pass", "--evidence", "ok"]);
+    fs.writeFileSync(path.join(dir, "isolate-0x1-v8.log"), "profiler noise\n");
+    assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2);
+    cb(dir, ["scratch", "isolate-*.log"]);
+    assert.match(cb(dir, ["check-stop"]).stdout, /verified against the current tree/);
+    // Declaring scratch is on the record, so a reader can see it and disagree.
+    assert.match(cb(dir, ["scratch"]).stdout, /isolate-\*\.log/);
+  });
+
+  it("finishes_an_unreproducible_bug_only_while_saying_it_is_unverified", () => {
+    // reproduction is a critical gate, so an honest unknown could never pass. There has to
+    // be a way to end such a session truthfully rather than no way to end it.
+    const report = (result) => [
+      "STATE: DONE", "OBSERVATIONS: 40 rounds", "HYPOTHESES: H1",
+      "DISCONFIRMING TEST: 40 rounds", `RESULT: ${result}`, "NEXT ACTION: none",
+      "BLOCKED BY: nothing",
+    ].join("\n");
+    fs.writeFileSync(path.join(dir, "source.txt"), "a speculative fix\n");
+    cb(dir, ["transition", "verify"]);
+    cb(dir, ["gate", "unit", "--result", "pass", "--evidence", "18 passed"]);
+    cb(dir, ["gate", "reproduction", "--result", "unknown", "--evidence", "never reproduced in 40 rounds"]);
+    const hedged = cb(dir, ["check-stop", "--message", report("inconclusive")], { expect: 3 });
+    assert.equal(hedged.code, 3, "an honest unknown is not the same refusal as an unsupported claim");
+    assert.match(hedged.stdout, /say plainly/i);
+    assert.match(cb(dir, ["check-stop", "--message", report("the work is not verified; it never reproduced")]).stdout,
+      /unverified, and the report says so/);
+  });
+
+  it("still_refuses_an_unknown_that_nobody_even_tried", () => {
+    // The escape is for a gate that was attempted and could not be answered, not for one
+    // recorded unknown with nothing behind it.
+    fs.writeFileSync(path.join(dir, "source.txt"), "changed\n");
+    cb(dir, ["transition", "verify"]);
+    cb(dir, ["gate", "reproduction", "--result", "unknown"]);
+    cb(dir, ["gate", "unit", "--result", "unknown"]);
+    assert.equal(cb(dir, ["check-stop", "--message", "the work is not verified"], { expect: 2 }).code, 2);
   });
 });
