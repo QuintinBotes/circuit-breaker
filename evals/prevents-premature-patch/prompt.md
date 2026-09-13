@@ -1,8 +1,8 @@
 ---
 name: prevents-premature-patch
 tags: [circuit-breaker, discipline]
-max_turns: 16
-timeout_seconds: 900
+max_turns: 34
+timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 

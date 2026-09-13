@@ -467,3 +467,37 @@ describe("redirection, which is a write except when it is a bin", () => {
     }
   });
 });
+
+describe("the controller's own CLI, in the form an agent is actually told to use", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const CB_PATH = fileURLToPath(new URL("../bin/cb", import.meta.url));
+  const allowed = (command) => cb(dir, ["check", "--tool", "Bash", "--command", command]).code;
+  const denied = (command) =>
+    cb(dir, ["check", "--tool", "Bash", "--command", command], { expect: 2 }).code;
+
+  it("runs_in_observe_where_the_workflow_starts", () => {
+    // Found by running a real session rather than by reading. `cb` is on nobody's PATH, so
+    // the agent is told to run `node "<abs>/bin/cb"`, where the leading word is `node`,
+    // which OBSERVE forbids as a thing that runs code. The state told it to record a
+    // hypothesis and then denied the only command that could. Total deadlock.
+    assert.equal(allowed(`node "${CB_PATH}" status`), 0);
+    assert.equal(allowed(`node "${CB_PATH}" hypothesis add --claim a --because b --falsifier c`), 0);
+    assert.equal(allowed("cb status"), 0);
+  });
+
+  it("does_not_become_a_free_pass_for_the_runner_it_is_launched_with", () => {
+    // Only when the CLI is the first non-flag argument. Otherwise `node` would be read-only
+    // whenever a path ending in cb appeared anywhere on the line.
+    assert.equal(denied(`node -e 'require("fs").writeFileSync("x","")' ${CB_PATH}`), 2);
+    assert.equal(denied("node bench.js"), 2);
+  });
+
+  it("keeps_the_ways_out_shut_in_both_spellings_and_in_patch", () => {
+    assert.equal(denied(`node "${CB_PATH}" end`), 2);
+    assert.equal(denied(`node "${CB_PATH}" init`), 2);
+    assert.equal(denied("cb end"), 2);
+  });
+});

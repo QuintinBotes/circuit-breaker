@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs && bash test/end-to-end.sh",
-    "eval": "claude plugin eval . --scaffold --allow-tools 'Bash,Edit,Write'"
+    "eval": "claude plugin eval . --scaffold --allow-tools Bash Write Edit"
   },
   "engines": {
     "node": ">=20"
