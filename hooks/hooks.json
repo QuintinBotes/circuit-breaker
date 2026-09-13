@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*__(navigate|computer|form_input|javascript_tool|file_upload|upload_image|browser_batch|shortcuts_execute|resize_window|gif_creator|tabs_create_mcp|tabs_close_mcp|select_browser|switch_browser)",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -14,7 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*__(navigate|computer|form_input|javascript_tool|file_upload|upload_image|browser_batch|shortcuts_execute|resize_window|gif_creator|tabs_create_mcp|tabs_close_mcp|select_browser|switch_browser)",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|mcp__.*",
         "hooks": [
           {
             "type": "command",
