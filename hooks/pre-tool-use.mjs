@@ -24,11 +24,25 @@ try {
 }
 
 const input = event.tool_input ?? {};
-const verdict = judge(state, {
-  tool: event.tool_name,
-  command: input.command ?? "",
-  path: input.file_path ?? input.notebook_path ?? "",
-});
+
+// A gate that throws is a gate that does not deny. A crafted command line once drove the
+// classifier to a stack overflow, the hook exited non-zero with nothing on stdout, and the
+// tool call proceeded. Anything unexpected in here is now a denial, not an accident.
+let verdict;
+try {
+  verdict = judge(state, {
+    tool: event.tool_name,
+    command: typeof input.command === "string" ? input.command : "",
+    path: input.file_path ?? input.notebook_path ?? "",
+  });
+} catch (error) {
+  verdict = {
+    allow: false,
+    reason:
+      `circuit-breaker could not judge this command (${error.message}). It is refused rather ` +
+      `than allowed, because a gate that fails open is not a gate. Simplify the command line.`,
+  };
+}
 
 if (verdict.allow) respond({});
 

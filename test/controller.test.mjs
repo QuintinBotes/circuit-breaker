@@ -223,7 +223,7 @@ describe("what a shell command is allowed to be", () => {
 
   it("reads_the_commands_inside_a_substitution_before_the_line_that_holds_them", () => {
     const denied = deniedIn("OBSERVE", "echo $(rm -rf build)");
-    assert.match(denied.stdout, /inside \$\( \)/);
+    assert.match(denied.stdout, /inside a substitution/);
     allowedIn("OBSERVE", "echo $(git rev-parse HEAD)");
   });
 
@@ -522,5 +522,180 @@ describe("the controller's own CLI, in the form an agent is actually told to use
     assert.equal(denied(`node "${CB_PATH}" end`), 2);
     assert.equal(denied(`node "${CB_PATH}" init`), 2);
     assert.equal(denied("cb end"), 2);
+  });
+});
+
+describe("the holes a split-and-take-the-first-word gate could not see", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const denied = (command) =>
+    cb(dir, ["check", "--tool", "Bash", "--command", command], { expect: 2 }).code;
+  const allowed = (command) => cb(dir, ["check", "--tool", "Bash", "--command", command]).code;
+
+  it("reads_an_ampersand_as_a_separator_and_not_as_an_argument", () => {
+    // `true & rm f.txt` was judged as `true` and deleted the file.
+    assert.equal(denied("true & rm source.txt"), 2);
+    assert.equal(denied("ls & rm -f source.txt"), 2);
+    assert.equal(denied("ls && true & rm source.txt"), 2);
+  });
+
+  it("sees_through_the_wrappers_that_run_another_command", () => {
+    // Each of these was a universal write prefix: the wrapper was classified, not the
+    // command it runs.
+    for (const c of ["env rm source.txt", "env -i /bin/rm source.txt", "env FOO=1 rm source.txt",
+                     "/usr/bin/env rm source.txt", "time rm source.txt", "nice rm source.txt",
+                     "timeout 5 rm source.txt", "xargs rm"]) {
+      assert.equal(denied(c), 2, c);
+    }
+    assert.equal(allowed("env"), 0);
+    assert.equal(allowed("time ls"), 0);
+  });
+
+  it("reads_the_redirection_spellings_that_looked_like_descriptor_dups", () => {
+    // `>&file` with a non-numeric target is a file redirect, not a dup.
+    assert.equal(denied("echo hi >& out.txt"), 2);
+    assert.equal(denied("cat source.txt >& out.txt"), 2);
+    assert.equal(allowed("ls 2>&1"), 0);
+    assert.equal(allowed("ls >/dev/null 2>&1"), 0);
+  });
+
+  it("keeps_its_place_through_dollar_quotes", () => {
+    // $'\'' desynchronised the old scanner and the rest of the line went unread.
+    assert.equal(denied("echo $'\\'' > out.txt"), 2);
+  });
+
+  it("judges_a_process_substitution_as_the_command_line_it_is", () => {
+    assert.equal(denied("cat <(rm source.txt)"), 2);
+    assert.equal(denied("diff <(cat source.txt) <(rm source.txt)"), 2);
+    assert.equal(allowed("diff <(cat source.txt) <(git show HEAD:source.txt)"), 0);
+  });
+
+  it("knows_the_read_listed_tools_that_write_when_asked_to", () => {
+    for (const c of ["sort -o out.txt source.txt", "sort source.txt -o source.txt",
+                     "uniq source.txt out.txt", "sed -n 'w out.txt' source.txt",
+                     "sed 's/a/b/w out.txt' source.txt", "perl -pi -e s/a/b/ source.txt",
+                     "curl -s -o source.txt file:///etc/hosts", "tee out.txt"]) {
+      assert.equal(denied(c), 2, c);
+    }
+    assert.equal(allowed("sort source.txt"), 0);
+    assert.equal(allowed("uniq source.txt"), 0);
+  });
+
+  it("splits_git_by_what_the_subcommand_does_not_by_a_word_anywhere_on_the_line", () => {
+    // `git stash push -m list` reverted uncommitted work while being called a read.
+    assert.equal(denied("git stash push -m list"), 2);
+    assert.equal(denied("git worktree add list"), 2);
+    assert.equal(denied("git branch -D important-work"), 2);
+    assert.equal(denied("git branch evil"), 2);
+    assert.equal(denied("git remote add origin https://example.invalid/x.git"), 2);
+    assert.equal(allowed("git stash list"), 0);
+    assert.equal(allowed("git worktree list"), 0);
+    assert.equal(allowed("git branch"), 0);
+    assert.equal(allowed("git remote -v"), 0);
+  });
+
+  it("refuses_rather_than_crashes_on_a_nest_it_cannot_judge", () => {
+    // A crafted nest drove the classifier to a stack overflow; the hook then exited
+    // non-zero with nothing on stdout, which Claude Code treats as no decision at all.
+    const bomb = `echo '${"$(".repeat(2000)}${")".repeat(2000)}' ; rm -rf source.txt`;
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", bomb], { expect: 2 }).code, 2);
+  });
+
+  it("permits_the_shell_idioms_a_read_only_state_must_not_forbid", () => {
+    // Every one of these was refused, and `cd x && ls` is the commonest line there is.
+    for (const c of ["cd sub && ls", "cd sub; ls", "test -f source.txt",
+                     "[ -f source.txt ] && cat source.txt",
+                     "for f in *.txt; do cat $f; done",
+                     "if [ -f source.txt ]; then cat source.txt; fi",
+                     "awk -F'|' '{print $1}' source.txt"]) {
+      assert.equal(allowed(c), 0, c);
+    }
+  });
+
+  it("says_so_rather_than_guessing_when_it_meets_a_heredoc", () => {
+    const out = cb(dir, ["check", "--tool", "Bash", "--command", "cat <<EOF\nhello\nEOF"], { expect: 2 });
+    assert.match(out.stdout, /heredoc/);
+  });
+
+  it("holds_the_cb_guard_against_a_rename_a_symlink_and_a_wrapper", () => {
+    const CB_PATH = fileURLToPath(new URL("../bin/cb", import.meta.url));
+    const link = path.join(dir, "breaker");
+    fs.symlinkSync(CB_PATH, link);
+    for (const c of [`env node ${CB_PATH} end`, `true & node ${CB_PATH} end`,
+                     `node ${link} end`, `time node ${CB_PATH} end`,
+                     `cat source.txt & node ${CB_PATH} init`]) {
+      assert.equal(denied(c), 2, c);
+    }
+  });
+});
+
+describe("the Stop gate's baseline, which a transition used to move", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("stays_the_tree_the_session_started_from", () => {
+    // `state.diffHash` was re-stamped on every transition, so one `cb transition suspended`
+    // after an edit made the session look as though it had changed nothing at all.
+    fs.writeFileSync(path.join(dir, "source.txt"), "edited\n");
+    assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2);
+    cb(dir, ["transition", "hypothesize"]);
+    assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2);
+    cb(dir, ["transition", "suspended"]);
+    assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2);
+  });
+});
+
+describe("a cause that stops being confirmed", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("closes_the_patch_it_was_the_reason_for", () => {
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, ["experiment", "record", "--hypothesis", "H1", "--command", "./b", "--exit", "0",
+      "--classification", "supports"]);
+    cb(dir, ["hypothesis", "confirm", "H1"]);
+    cb(dir, ["transition", "patch", "--hypothesis", "H1"]);
+    assert.equal(cb(dir, ["check", "--tool", "Edit", "--path", "source.txt"]).code, 0);
+    cb(dir, ["hypothesis", "reject", "H1"]);
+    // The skeptic's verdict has to mean something after it is recorded.
+    const denied = cb(dir, ["check", "--tool", "Edit", "--path", "source.txt"], { expect: 2 });
+    assert.match(denied.stdout, /now rejected/);
+    const refused = cb(dir, ["hypothesis", "confirm", "H1"], { expect: 1 });
+    assert.match(refused.stderr, /was rejected/);
+  });
+});
+
+describe("a state file that cannot be trusted", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("fails_closed_rather_than_open", () => {
+    const file = path.join(dir, ".claude", "circuit-breaker", "state.json");
+    const good = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(file, JSON.stringify({ ...good, state: "BANANA" }));
+    const denied = cb(dir, ["check", "--tool", "Edit", "--path", "source.txt"], { expect: 2 });
+    assert.match(denied.stdout, /not a state/);
+    assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2);
+  });
+});
+
+describe("a project git never heard of", () => {
+  it("refuses_to_open_a_session_it_could_not_enforce", () => {
+    // Without git there is no diff, so the Stop gate would pass anything and the session
+    // would look enforced while enforcing nothing.
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), "cb-nogit-"));
+    try {
+      const refused = cb(bare, ["init"], { expect: 1 });
+      assert.match(refused.stderr, /not a git repository/);
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
   });
 });
