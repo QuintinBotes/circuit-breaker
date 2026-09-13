@@ -1,6 +1,6 @@
 #!/bin/bash
 set -u
-PLUGIN=/Users/quintinbotes/Projects/circuit-breaker
+PLUGIN=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 H="$PLUGIN/hooks"
 D=$(mktemp -d)
 cd "$D" || exit 1
