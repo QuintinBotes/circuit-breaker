@@ -165,8 +165,31 @@ describe("what a shell command is allowed to be", () => {
   });
 
   it("treats_a_command_it_does_not_know_as_a_write", () => {
-    const denied = deniedIn("OBSERVE", "./scripts/rebuild-everything");
+    const denied = deniedIn("OBSERVE", "rebuild-everything");
     assert.match(denied.stdout, /treated as a write/);
+  });
+
+  it("lets_an_experiment_run_the_project_s_own_scripts", () => {
+    // Found by walking a real session through the states. `./repro.sh` was classified as an
+    // unknown write, so EXPERIMENT could not reproduce anything and VERIFY could not answer
+    // the reproduction gate, which is the one critical gate. A relative path is the
+    // project's own script and runs code, which is what a diagnostic is: no weaker than the
+    // `node` and `make` already on that list, both of which can write whatever they like.
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    for (const command of ["./repro.sh", "scripts/build.sh --ci", "../tools/bench.sh"]) {
+      assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", command]).code, 0, command);
+    }
+    // An absolute path is still judged by its basename, so the system binaries keep the
+    // classification they had.
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "/usr/bin/node b.js"]).code, 0);
+    assert.equal(
+      cb(dir, ["check", "--tool", "Bash", "--command", "/bin/rm -rf build"], { expect: 2 }).code, 2,
+    );
+    cb(dir, ["transition", "observe"]);
+    // OBSERVE still refuses it, and now says why: it runs code.
+    const denied = deniedIn("OBSERVE", "./repro.sh");
+    assert.match(denied.stdout, /runs code/);
   });
 
   it("splits_git_by_subcommand_because_git_is_neither", () => {
