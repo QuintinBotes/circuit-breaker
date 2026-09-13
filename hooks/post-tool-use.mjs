@@ -5,7 +5,7 @@
 // agent that writes "this confirms the leak" into the same place the exit code lives has
 // made its conclusion unfalsifiable by the next reader.
 
-import { CB, classifyTool, diffHash, load, save } from "../lib/controller.mjs";
+import { CB, classifyTool, diffHash, load, save, withLock } from "../lib/controller.mjs";
 import { readHook, respond, rootFor } from "./io.mjs";
 
 const event = await readHook();
@@ -52,7 +52,11 @@ const action = command || (classifyTool(tool) === "diagnostic" ? tool : "");
 if (!action) respond({});
 
 const { text, exit } = readResponse(event.tool_response);
-state.log.push({
+// Under the lock and re-read: this hook fires while the agent is running its own cb
+// commands, and an unguarded load-modify-save between them loses whichever wrote first.
+withLock(root, () => {
+  state = load(root);
+  state.log.push({
   at: new Date().toISOString(),
   event: "observation",
   state: state.state,
@@ -64,8 +68,9 @@ state.log.push({
   tail: text.split("\n").filter(Boolean).slice(-8).join("\n"),
   diffHash: diffHash(root),
 });
-if (state.log.length > 500) state.log.splice(0, state.log.length - 500);
-save(state, root);
+  if (state.log.length > 500) state.log.splice(0, state.log.length - 500);
+  save(state, root);
+});
 
 const open = state.hypotheses.filter((h) => h.status === "open").map((h) => h.id);
 respond({
