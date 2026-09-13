@@ -1,8 +1,9 @@
 ---
 name: challenges-memory-leak
 tags: [circuit-breaker, systems]
-max_turns: 14
-timeout_seconds: 900
+max_turns: 18
+timeout_seconds: 1200
+allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
 Our documentation generator's memory grows to 6 GB while processing a 29-package monorepo

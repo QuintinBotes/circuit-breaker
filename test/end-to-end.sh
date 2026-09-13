@@ -2,6 +2,7 @@
 set -u
 PLUGIN=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 H="$PLUGIN/hooks"
+export D
 D=$(mktemp -d)
 cd "$D" || exit 1
 git init -q && git config user.email a@b.c && git config user.name a
@@ -9,6 +10,14 @@ printf 'let cache = new Map()\n' > app.js && git add -A && git commit -qm first
 
 cb() { node "$PLUGIN/bin/cb" "$@"; }
 hook() { echo "$2" | node "$H/$1"; }
+
+# A Stop event as Claude Code sends it: the last message is supplied, so the report schema is
+# part of what the gate measures.
+export REPORT
+REPORT='STATE: PATCH\nOBSERVATIONS: the cache grows\nHYPOTHESES: H1\nDISCONFIRMING TEST: ./bench\nRESULT: supports\nNEXT ACTION: verify\nBLOCKED BY: nothing'
+stop_event() {
+  python3 -c "import json,os;print(json.dumps({'hook_event_name':'Stop','stop_hook_active':False,'last_assistant_message':os.environ['REPORT'].replace('\\\\n',chr(10)),'cwd':os.environ['D']}))"
+}
 
 cb init > /dev/null
 echo "1. an edit, straight away"
@@ -27,19 +36,19 @@ out=$(hook pre-tool-use.mjs "{\"tool_name\":\"Write\",\"tool_input\":{\"file_pat
 printf 'let cache = new Map()\n// evicted\n' > app.js
 
 echo "3. finishing without verifying"
-hook stop.mjs "{\"cwd\":\"$D\"}" \
-  | python3 -c "import sys,json;d=json.load(sys.stdin);print('   ',d['hookSpecificOutput']['stopReason'].split('. Run the')[0])"
+hook stop.mjs "$(stop_event)" \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('   ',d['decision']+':',d['reason'].split('. Run the')[0])"
 
 echo "4. after recording the gates"
 cb transition verify > /dev/null
 cb gate reproduction --result pass --evidence "./repro exits 0" > /dev/null
 cb gate unit --result pass --evidence "12 passed" > /dev/null
-out=$(hook stop.mjs "{\"cwd\":\"$D\"}")
+out=$(hook stop.mjs "$(stop_event)")
 [ -z "$out" ] && echo "    allowed to finish" || echo "    blocked: $out"
 
 echo "5. one more line, after that verification"
 printf 'let cache = new Map()\n// evicted\n// and again\n' > app.js
-hook stop.mjs "{\"cwd\":\"$D\"}" \
-  | python3 -c "import sys,json;d=json.load(sys.stdin);print('   ',d['hookSpecificOutput']['stopReason'].split('Missing: ')[1].split('. Run')[0])"
+hook stop.mjs "$(stop_event)" \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('   ',d['reason'].split('Missing: ')[1].split('. Run')[0])"
 
 cd /tmp && rm -rf "$D"

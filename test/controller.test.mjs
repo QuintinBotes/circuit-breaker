@@ -89,7 +89,9 @@ describe("the states, as a working session moves through them", () => {
     assert.match(cb(dir, ["status"]).stdout, /STATE: OBSERVE/);
     const denied = cb(dir, ["check", "--tool", "Edit", "--path", "source.txt"], { expect: 2 });
     assert.match(denied.stdout, /mutation/);
-    assert.match(denied.stdout, /cb hypothesis add/);
+    // The invocation has to be runnable: `cb` is not on PATH and never will be, so a
+    // message naming a bare `cb` sends the agent to a command that does not exist.
+    assert.match(denied.stdout, /node "[^"]*bin\/cb" hypothesis add/);
   });
 
   it("refuses_to_confirm_a_hypothesis_no_experiment_supports", () => {
@@ -285,5 +287,183 @@ describe("suspension, which has to survive being asked for mid-thought", () => {
     assert.match(cb(dir, ["status"]).stdout, /STATE: SUSPENDED \(suspended from EXPERIMENT\)/);
     assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "node ./bench.mjs"], { expect: 2 }).code, 2);
     assert.match(cb(dir, ["transition", "resume"]).stdout, /EXPERIMENT/);
+  });
+});
+
+describe("the ways out of the controller, which must not be reachable from inside it", () => {
+  let dir;
+  before(() => { dir = repo().dir; });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("refuses_to_let_the_agent_close_the_session", () => {
+    // `cb` has to stay runnable, since the ledger is kept with it. That puts the release
+    // valve inside the agent's reach unless it is named and denied.
+    cb(dir, ["init"]);
+    const denied = cb(dir, ["check", "--tool", "Bash", "--command", "cb end"], { expect: 2 });
+    assert.match(denied.stdout, /hands the project back unguarded/);
+    assert.match(cb(dir, ["status"]).stdout, /STATE: OBSERVE/);
+  });
+
+  it("refuses_to_let_the_agent_wipe_an_open_ledger_with_init", () => {
+    // The quieter escape: `cb init` empties the state and re-stamps the diff hash, so a
+    // session with unverified changes would finish as one that never changed anything.
+    const denied = cb(dir, ["check", "--tool", "Bash", "--command", "cb init"], { expect: 2 });
+    assert.match(denied.stdout, /would empty the ledger/);
+  });
+
+  it("lets_the_agent_start_a_session_because_that_only_adds_constraint", () => {
+    cb(dir, ["end"]);
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "cb init"]).code, 0);
+  });
+});
+
+describe("the shell holes an allowlist of names cannot see", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const denied = (command) =>
+    cb(dir, ["check", "--tool", "Bash", "--command", command], { expect: 2 });
+
+  it("reads_find_as_a_write_when_it_is_given_something_to_do", () => {
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "find . -name '*.js'"]).code, 0);
+    assert.equal(denied("find . -name '*.js' -delete").code, 2);
+    assert.equal(denied("find . -name '*.js' -exec rm {} +").code, 2);
+  });
+
+  it("reads_an_awk_program_that_redirects_as_a_write", () => {
+    // awk redirects from inside its own program text, where the shell cannot see it.
+    assert.equal(denied("awk 'BEGIN{print \"x\" > \"app.js\"}'").code, 2);
+    assert.equal(denied("awk '{system(\"rm -rf build\")}' f").code, 2);
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "awk '{print $1}' f"]).code, 0);
+  });
+
+  it("splits_git_config_by_whether_it_is_getting_or_setting", () => {
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "git config --get user.name"]).code, 0);
+    assert.equal(denied("git config user.name hacker").code, 2);
+  });
+});
+
+describe("verification that drives the running thing rather than a nearby test", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("keeps_browser_reads_open_and_browser_actions_for_the_states_that_measure", () => {
+    // Reading a page is reading. Clicking is an effect in the application under test, and
+    // belongs where a hypothesis or a gate says what it is for.
+    assert.equal(cb(dir, ["check", "--tool", "mcp__claude-in-chrome__read_page"]).code, 0);
+    const denied = cb(dir, ["check", "--tool", "mcp__claude-in-chrome__computer"], { expect: 2 });
+    assert.match(denied.stdout, /acts on the running application/);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    assert.equal(cb(dir, ["check", "--tool", "mcp__claude-in-chrome__computer"]).code, 0);
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "npx playwright test"]).code, 0);
+  });
+
+  it("leaves_tools_it_has_never_heard_of_alone", () => {
+    // A controller that denied every unknown tool would break sessions it knows nothing
+    // about, and the states are about mutation, not about tool inventory.
+    assert.equal(cb(dir, ["check", "--tool", "mcp__some-other-server__whatever"]).code, 0);
+  });
+});
+
+describe("a second cause in the same session", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("can_be_patched_once_the_first_one_has_finished", () => {
+    // The first fix stays open until the cycle ends. Without clearing it at DONE the guard
+    // that makes a failure name one cause would wedge the session for good, and the only
+    // way out would be to wipe the ledger.
+    const cycle = (hypothesis, file) => {
+      cb(dir, ["hypothesis", "add", "--claim", `c${hypothesis}`, "--because", "b", "--falsifier", "f"]);
+      if (cb(dir, ["status"]).stdout.includes("STATE: OBSERVE")) cb(dir, ["transition", "hypothesize"]);
+      cb(dir, ["transition", "experiment"]);
+      cb(dir, ["experiment", "record", "--hypothesis", hypothesis, "--command", "./x",
+        "--exit", "0", "--classification", "supports"]);
+      cb(dir, ["hypothesis", "confirm", hypothesis]);
+      cb(dir, ["transition", "patch", "--hypothesis", hypothesis]);
+      fs.writeFileSync(path.join(dir, file), "fixed\n");
+      cb(dir, ["transition", "verify"]);
+      cb(dir, ["gate", "reproduction", "--result", "pass", "--evidence", "ran"]);
+      cb(dir, ["gate", "unit", "--result", "pass", "--evidence", "ran"]);
+      cb(dir, ["transition", "done"]);
+    };
+    cycle("H1", "one.txt");
+    cb(dir, ["transition", "observe"]);
+    cycle("H2", "two.txt");
+    assert.match(cb(dir, ["status"]).stdout, /STATE: DONE/);
+  });
+});
+
+describe("suspension asked for twice", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("still_remembers_the_state_it_came_from", () => {
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "suspended"]);
+    cb(dir, ["transition", "suspended"]);
+    assert.match(cb(dir, ["status"]).stdout, /suspended from HYPOTHESIZE/);
+    assert.match(cb(dir, ["transition", "resume"]).stdout, /HYPOTHESIZE/);
+  });
+});
+
+describe("the output contract, checked rather than requested", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const REPORT = [
+    "STATE: OBSERVE", "OBSERVATIONS: none yet", "HYPOTHESES: none",
+    "DISCONFIRMING TEST: none", "RESULT: none", "NEXT ACTION: read the log",
+    "BLOCKED BY: nothing",
+  ].join("\n");
+
+  it("rejects_a_report_that_is_prose_instead_of_the_schema", () => {
+    const blocked = cb(dir, ["check-stop", "--message", "You're absolutely right! All fixed."],
+      { expect: 2 });
+    assert.match(blocked.stdout, /not in the investigation format/);
+    assert.match(blocked.stdout, /BLOCKED BY:/);
+  });
+
+  it("accepts_the_schema_and_says_nothing_about_style", () => {
+    assert.match(cb(dir, ["check-stop", "--message", REPORT]).stdout, /no change was made/);
+  });
+
+  it("does_not_check_a_report_it_was_not_given", () => {
+    // The hook supplies the last message; a bare check-stop is about the evidence only.
+    assert.match(cb(dir, ["check-stop"]).stdout, /no change was made/);
+  });
+});
+
+describe("redirection, which is a write except when it is a bin", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("allows_the_three_shapes_of_discarding_output", () => {
+    // Found by running the plugin against a real session: the first command it wanted was
+    // `ls -la path 2>/dev/null`, and denying that makes OBSERVE unusable for the sake of
+    // nothing. Discarding output is not writing.
+    for (const command of [
+      "ls -la /tmp 2>/dev/null",
+      "rg foo src/ >/dev/null 2>&1",
+      "cat source.txt 1>/dev/null",
+      "grep -r x . 2>&1",
+    ]) {
+      assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", command]).code, 0, command);
+    }
+  });
+
+  it("still_denies_a_redirection_that_lands_in_a_file", () => {
+    for (const command of ["cat source.txt > out.txt", "echo x >> source.txt", "ls > /etc/hosts"]) {
+      assert.equal(
+        cb(dir, ["check", "--tool", "Bash", "--command", command], { expect: 2 }).code, 2, command,
+      );
+    }
   });
 });

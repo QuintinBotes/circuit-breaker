@@ -4,9 +4,18 @@
   "type": "module",
   "private": true,
   "description": "A state machine for debugging sessions, enforced by Claude Code hooks rather than by asking",
-  "bin": { "cb": "bin/cb" },
-  "scripts": {
-    "test": "node --test test/*.test.mjs && bash test/end-to-end.sh"
+  "bin": {
+    "cb": "bin/cb"
   },
-  "engines": { "node": ">=20" }
+  "scripts": {
+    "test": "node --test test/*.test.mjs && bash test/end-to-end.sh",
+    "eval": "claude plugin eval . --scaffold --allow-tools 'Bash,Edit,Write'"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/QuintinBotes/circuit-breaker.git"
+  }
 }
