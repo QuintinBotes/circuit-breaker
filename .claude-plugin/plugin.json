@@ -1,0 +1,13 @@
+{
+  "name": "circuit-breaker",
+  "displayName": "Circuit Breaker",
+  "version": "0.1.0",
+  "description": "Investigation, mutation, refutation and verification as states a hook enforces, rather than instructions a model is asked to follow",
+  "license": "MIT",
+  "keywords": ["debugging", "verification", "hooks", "state-machine"],
+  "hooks": "./hooks/hooks.json",
+  "agents": ["./agents/skeptic.md"],
+  "experimental": {
+    "evals": "evals"
+  }
+}

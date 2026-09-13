@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+// The entry point, and nothing else: the rules live in lib/controller.mjs so that the
+// tests drive the same code the hooks run rather than a copy of it.
+import { main } from "../lib/controller.mjs";
+
+main(process.argv.slice(2));
