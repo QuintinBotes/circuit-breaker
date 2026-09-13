@@ -889,6 +889,12 @@ describe("the five things the workflow sweep said were awkward", () => {
     fs.writeFileSync(path.join(dir, "isolate-0x1-v8.log"), "profiler noise\n");
     assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2);
     cb(dir, ["scratch", "isolate-*.log"]);
+    // Declaring scratch after a verification invalidates it, because a pattern must not be
+    // able to reach back and excuse a change the gates were never run against. Re-recording
+    // is two commands rather than the four transitions this replaced.
+    assert.match(cb(dir, ["check-stop"], { expect: 2 }).stdout, /is not recorded/);
+    cb(dir, ["gate", "reproduction", "--result", "pass", "--evidence", "ok"]);
+    cb(dir, ["gate", "unit", "--result", "pass", "--evidence", "ok"]);
     assert.match(cb(dir, ["check-stop"]).stdout, /verified against the current tree/);
     // Declaring scratch is on the record, so a reader can see it and disagree.
     assert.match(cb(dir, ["scratch"]).stdout, /isolate-\*\.log/);
@@ -921,5 +927,59 @@ describe("the five things the workflow sweep said were awkward", () => {
     cb(dir, ["gate", "reproduction", "--result", "unknown"]);
     cb(dir, ["gate", "unit", "--result", "unknown"]);
     assert.equal(cb(dir, ["check-stop", "--message", "the work is not verified"], { expect: 2 }).code, 2);
+  });
+});
+
+describe("the two commands that grant something, attacked", () => {
+  let dir;
+  beforeEach(() => {
+    dir = repo().dir;
+    fs.writeFileSync(path.join(dir, "repro.sh"), "#!/bin/bash\nexit 0\n");
+    fs.chmodSync(path.join(dir, "repro.sh"), 0o755);
+    cb(dir, ["init"]);
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const CB_PATH = fileURLToPath(new URL("../bin/cb", import.meta.url));
+
+  it("will_not_let_a_write_be_called_a_reproduction", () => {
+    // `reproduce` lifts "no running code in OBSERVE". It must never lift "no writing", or
+    // naming `rm -rf src` as the reproduction permits it in every state.
+    for (const command of ["rm -rf source.txt", `node ${CB_PATH} end`, "./repro.sh > source.txt",
+                           "git commit -am x", "true & rm source.txt"]) {
+      const refused = cb(dir, ["reproduce", "--command", command], { expect: 1 });
+      assert.match(refused.stderr, /cannot be a reproduction/, command);
+    }
+    cb(dir, ["reproduce", "--command", "./repro.sh"]);
+    assert.equal(cb(dir, ["check", "--tool", "Bash", "--command", "./repro.sh"]).code, 0);
+  });
+
+  it("will_not_let_scratch_be_an_off_switch", () => {
+    for (const pattern of ["**", "*", ".", "/", "**/*"]) {
+      assert.match(cb(dir, ["scratch", pattern], { expect: 1 }).stderr, /off switch/, pattern);
+    }
+    cb(dir, ["scratch", "isolate-*.log"]);
+  });
+
+  it("will_not_let_scratch_excuse_a_change_already_verified", () => {
+    // Write the fix into a new file, verify it, rewrite it, then try to declare the file
+    // irrelevant. The gates were never run against what is there now.
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, ["experiment", "record", "--hypothesis", "H1", "--command", "./repro.sh",
+      "--exit", "0", "--classification", "supports"]);
+    cb(dir, ["hypothesis", "confirm", "H1"]);
+    cb(dir, ["transition", "patch", "--hypothesis", "H1"]);
+    fs.writeFileSync(path.join(dir, "newfix.js"), "the good fix\n");
+    cb(dir, ["transition", "verify"]);
+    cb(dir, ["gate", "reproduction", "--result", "pass", "--evidence", "ok"]);
+    cb(dir, ["gate", "unit", "--result", "pass", "--evidence", "ok"]);
+    assert.match(cb(dir, ["check-stop"]).stdout, /verified against the current tree/);
+
+    fs.writeFileSync(path.join(dir, "newfix.js"), "something else entirely\n");
+    cb(dir, ["scratch", "newfix.js"]);
+    assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2,
+      "declaring a file scratch must not excuse a rewrite the gates never saw");
   });
 });
