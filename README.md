@@ -174,6 +174,9 @@ symptom check once and it runs in any state:
 cb reproduce --command "./repro.sh"
 ```
 
+It has to be something that only shows the symptom: a command that writes, redirects, or
+closes the session is refused as a reproduction, and re-checked every time it runs.
+
 **Churn that is not the work.** A profiler log or a coverage directory appearing after a
 verification makes it stale. Declare it, and it stops counting. It goes on the record, so a
 reader can see exactly what was excluded:
@@ -182,7 +185,9 @@ reader can see exactly what was excluded:
 cb scratch 'isolate-*.log'
 ```
 
-Anything in `.gitignore` is already excluded.
+Anything in `.gitignore` is already excluded. A pattern that matches the whole tree is
+refused, and declaring one while a verification is open clears its gates, so a pattern
+cannot reach back and excuse a change the gates were never run against.
 
 **A bug that never reproduces.** `reproduction` is a critical gate and an honest `unknown`
 is not a pass, but it is not a dead end either. Record it with evidence, and the session may
@@ -222,7 +227,7 @@ evals/              four cases built from real failures
 test/               real git repositories, the real CLI, no mocks
 ```
 
-`npm test` runs 72 tests against temporary git repositories driving `bin/cb` as a process,
+`npm test` runs 75 tests against temporary git repositories driving `bin/cb` as a process,
 plus an end-to-end script that pipes real Claude Code hook payloads through the real hooks.
 `npm run eval` scores the plugin against its four cases, with and without itself loaded; see
 [evals/README.md](evals/README.md).
