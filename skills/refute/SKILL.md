@@ -5,9 +5,9 @@ description: Use before patching a cause you believe, before merging a diagnosis
 
 # Refute
 
-The CLI is not on your PATH. Every circuit-breaker message names the exact invocation —
-`node "/…/circuit-breaker/bin/cb"` — and that is the string to use. `cb` below is shorthand
-for it.
+The CLI is not on your PATH. Every circuit-breaker message names the exact invocation,
+`node "/path/to/circuit-breaker/bin/cb"`, and that is the string to use. `cb` below is
+shorthand for it.
 
 Trained assistants agree. They agree with the user, and they agree with themselves an hour
 later, and asking one to "reflect critically" frequently produces a more confident version

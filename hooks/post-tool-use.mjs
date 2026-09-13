@@ -25,8 +25,8 @@ if (state.state !== "EXPERIMENT" && state.state !== "VERIFY") respond({});
 /**
  * The result, as the field Claude Code actually sends.
  *
- * `tool_response` is an object for most tools — Bash returns stdout, stderr and an
- * interrupted flag — so the shape is unpacked rather than stringified, or the record reads
+ * `tool_response` is an object for most tools. Bash returns stdout, stderr and an
+ * interrupted flag, so the shape is unpacked rather than stringified, or the record reads
  * "[object Object]" and the evidence this hook exists to keep is lost.
  */
 function readResponse(response) {

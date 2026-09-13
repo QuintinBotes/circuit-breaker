@@ -117,9 +117,9 @@ is before the next external thing happens.
 
 The same thing works from another terminal while a turn is running, which is the more useful
 form: `cb transition suspended` writes the state, and the `PreToolUse` hook reads it before
-the agent's next action. Binding that to a key is not possible — Claude Code keybindings map
-keys to named actions and none of them submits text — so it is a second terminal or a typed
-word.
+the agent's next action. Binding that to a key is not possible, because Claude Code
+keybindings map keys to named actions and none of them submits text. It is a second terminal
+or a typed word.
 
 ## The states
 
@@ -141,8 +141,8 @@ hypothesis, which is the reset that stops the second patch for the same symptom.
 
 A gate answered by a unit test that shares a word with the claim is the substitution this
 plugin exists to catch. So `EXPERIMENT` and `VERIFY` permit the tools that answer a gate
-properly — a browser driven through MCP, `curl`, Playwright, a benchmark — while `OBSERVE`
-permits reading a page and not clicking on one.
+properly: a browser driven through MCP, `curl`, Playwright, a benchmark. `OBSERVE` permits
+reading a page and not clicking on one.
 
 | The symptom was | The reproduction gate is |
 |---|---|
@@ -153,6 +153,26 @@ permits reading a page and not clicking on one.
 
 A gate nothing can answer is `unknown`, which is a legitimate result and must reach the user.
 There is no score, because a percentage hides exactly the row a reader needs.
+
+## The report is a schema, not a request
+
+While a session is open, a final message has to carry these seven lines. The `Stop` hook
+reads the last message and names the ones it is missing:
+
+```
+STATE:
+OBSERVATIONS:
+HYPOTHESES:
+DISCONFIRMING TEST:
+RESULT:
+NEXT ACTION:
+BLOCKED BY:
+```
+
+This is not a style preference and it is not enforced by deleting phrases, which would let a
+substantive qualification disappear along with an apology. It is enforced by rejecting a
+report that is not in the shape. Open prose is where an acknowledgement, a hedge and a
+confession go; a slot named BLOCKED BY is either answered or visibly empty.
 
 ## What the gate reads
 

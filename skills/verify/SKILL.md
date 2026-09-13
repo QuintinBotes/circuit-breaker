@@ -8,9 +8,9 @@ description: Use before any claim that something is fixed, done, working, or pas
 A completion claim is a claim about a specific tree. Enter the state, which records the
 diff it is about: `cb transition verify`.
 
-The CLI is not on your PATH. Every circuit-breaker message names the exact invocation —
-`node "/…/circuit-breaker/bin/cb"` — and that is the string to use. `cb` below is shorthand
-for it.
+The CLI is not on your PATH. Every circuit-breaker message names the exact invocation,
+`node "/path/to/circuit-breaker/bin/cb"`, and that is the string to use. `cb` below is
+shorthand for it.
 
 ## Answer the gate with the thing itself
 
@@ -27,7 +27,7 @@ reported, with whatever this session can actually drive:
 
 Use what is in front of you. If the session has browser tools, drive the page and assert on
 what comes back. If it has a shell, run the request or the binary. If it has neither, the
-gate is `unknown` — which is an answer, and a legitimate one, and must reach the user.
+gate is `unknown`, which is an answer, and a legitimate one, and must reach the user.
 
 `EXPERIMENT` and `VERIFY` are the states where acting on a running application is permitted.
 Reading a page is allowed anywhere; clicking, typing and navigating are not, because an

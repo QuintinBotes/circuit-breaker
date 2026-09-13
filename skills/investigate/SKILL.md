@@ -8,21 +8,25 @@ description: Use at the start of any debugging, performance, or "why does it do 
 Open the session first: `cb init`. Until you do, this project is ungoverned and nothing
 below is enforced. Closing one is the user's to type, not yours.
 
-The CLI is not on your PATH. Every circuit-breaker message names the exact invocation —
-`node "/…/circuit-breaker/bin/cb"` — and that is the string to use. `cb` below is shorthand
-for it.
+The CLI is not on your PATH. Every circuit-breaker message names the exact invocation,
+`node "/path/to/circuit-breaker/bin/cb"`, and that is the string to use. `cb` below is
+shorthand for it.
 
 The states, and what each one is for:
 
-| State | The work | Mutation |
-|---|---|---|
-| OBSERVE | Read the code, the logs, the profiles, the API source | Denied |
-| HYPOTHESIZE | Write down competing explanations and what each predicts | Denied |
-| EXPERIMENT | Run the smallest measurement that tells them apart | Diagnostics only |
-| PATCH | One change, for one confirmed cause | Allowed |
-| VERIFY | The original reproduction, driven for real, then the rest of the matrix | Diagnostics only |
-| SUSPENDED | Nothing; the state is preserved | Denied |
-| DONE | Report the evidence and what is still unknown | Denied |
+| State | The work | Edit a file | Shell | Browser |
+|---|---|---|---|---|
+| OBSERVE | Read the code, the logs, the profiles, the API source | No | Read-only | Read only |
+| HYPOTHESIZE | Write down competing explanations and what each predicts | No | Read-only | Read only |
+| EXPERIMENT | Run the smallest measurement that tells them apart | No | Diagnostics | Drive it |
+| PATCH | One change, for one confirmed cause | Yes | Any | Any |
+| VERIFY | The original reproduction, driven for real, then the matrix | No | Diagnostics | Drive it |
+| SUSPENDED | Nothing; the state is preserved | No | Read-only | Read only |
+| DONE | Report the evidence and what is still unknown | No | Read-only | Read only |
+
+"Diagnostics" means a command may run code without changing source: a benchmark, a test
+suite, `curl`. "Drive it" means the browser may be navigated and clicked, which is how a UI
+gate gets answered. Reading a page is allowed in every state.
 
 ## What the hooks will not let you do
 

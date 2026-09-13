@@ -42,8 +42,8 @@ respond({
   decision: "block",
   reason:
     `circuit-breaker: this claim is not supported yet. Missing: ${verdict.missing.join("; ")}. ` +
-    `Run the original reproduction in the form the symptom was reported — the browser, the ` +
-    `API call, the launch, whatever it actually was — and not a nearby test. Record each ` +
+    `Run the original reproduction in the form the symptom was reported: the browser, the ` +
+    `API call, the launch, whatever it actually was. Not a nearby test. Record each ` +
     `gate with ${CB} gate <id> --result pass|fail|unknown --evidence "<the line that shows it>". ` +
     `If a gate cannot be run, record it as unknown and say so; unknown is an answer and a ` +
     `silent pass is not.`,
