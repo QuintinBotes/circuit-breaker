@@ -25,7 +25,7 @@ hook pre-tool-use.mjs "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"
   | python3 -c "import sys,json;d=json.load(sys.stdin);o=d['hookSpecificOutput'];print('   ',o['permissionDecision']+':',o['permissionDecisionReason'][:96],'...')"
 
 echo "2. the same edit, after the discipline"
-cb hypothesis add --claim "the cache is never evicted" --because "memory grows with request count" --falsifier "memory is flat with eviction disabled" > /dev/null
+cb hypothesis add --claim "the cache is never evicted" --because "memory grows with request count" --falsifier "memory is flat with eviction disabled" --blames self > /dev/null
 cb transition hypothesize > /dev/null
 cb transition experiment > /dev/null
 cb experiment record --hypothesis H1 --command "node bench.js" --exit 0 --classification supports > /dev/null
@@ -50,5 +50,28 @@ echo "5. one more line, after that verification"
 printf 'let cache = new Map()\n// evicted\n// and again\n' > app.js
 hook stop.mjs "$(stop_event)" \
   | python3 -c "import sys,json;d=json.load(sys.stdin);print('   ',d['reason'].split('Missing: ')[1].split('. Run')[0])"
+
+echo "6. a claim that blames the runtime rather than the code"
+cb hypothesis add --claim "v8 never collects the retained maps" --because "heap grows across gc" \
+  --falsifier "a forced gc drops the retained set" --blames external > /dev/null
+cb transition hypothesize > /dev/null
+cb transition experiment 2>&1 | sed 's/^/    /' | cut -c1-120
+
+echo "7. the same claim, once it says there is nothing written down"
+cb hypothesis ground H2 --undocumented "searched the v8 release notes and the bug tracker" > /dev/null
+cb transition experiment > /dev/null
+cb experiment record --hypothesis H2 --command "node --expose-gc bench.js" --exit 0 --classification supports > /dev/null
+cb hypothesis confirm H2 > /dev/null
+cb hypothesis verdict H2 --verdict PLAUSIBLE --unresolved "the allocator was never measured" > /dev/null
+cb transition patch --hypothesis H2 2>&1 | sed 's/^/    /' | cut -c1-120
+
+echo "8. and what a person typing one command changes"
+cb acknowledge H2 > /dev/null
+cb transition patch --hypothesis H2 | sed 's/^/    /'
+
+echo "9. somebody else stops the session"
+cb interrupt | sed 's/^/    /'
+hook pre-tool-use.mjs "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"app.js\"},\"cwd\":\"$D\"}" \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('   ',d['hookSpecificOutput']['permissionDecisionReason'][:110],'...')"
 
 cd /tmp && rm -rf "$D"

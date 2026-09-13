@@ -36,7 +36,19 @@ records and hands it over.
 
 ## What to do with the answer
 
-`FALSIFIED` or `UNSUPPORTED`: run `cb hypothesis reject H2`, say what you will test instead,
+Record what came back, whatever it was:
+
+```
+cb hypothesis verdict H2 --verdict FALSIFIED|UNSUPPORTED|PLAUSIBLE|SUPPORTED \
+  --unresolved "<what it could not settle>"
+```
+
+`FALSIFIED` and `UNSUPPORTED` reject the hypothesis as they are recorded. You do not get to
+record a falsification and patch anyway, which is the whole reason the verdict is a command
+rather than a sentence. A hypothesis that blames an external system cannot reach PATCH until
+a verdict is on the record at all.
+
+`FALSIFIED` or `UNSUPPORTED`: say what you will test instead,
 and go back to HYPOTHESIZE. Do not argue with the verdict in prose; if you think it is wrong,
 name the experiment that would settle it and run that.
 

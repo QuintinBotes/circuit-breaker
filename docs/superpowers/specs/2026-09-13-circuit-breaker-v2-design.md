@@ -157,8 +157,14 @@ list for why not.
 With no session open it is an error, the way every other command that reads the ledger is.
 It marks one hypothesis `interrupted`, drops the session to HYPOTHESIZE, clears `activeFix`,
 and sets the pending flag. Which hypothesis, in order: `--hypothesis` if given, else
-`activeFix.hypothesis`, else the hypothesis of the most recent experiment, else none —
-and `cb status` says which it chose, so a wrong guess is visible rather than silent.
+`activeFix.hypothesis`, else the only open hypothesis if there is exactly one, else the
+hypothesis of the most recent recorded experiment, else none — and `cb status` says which it
+chose, so a wrong guess is visible rather than silent.
+
+The only-open rule outranks the last-experiment rule because the moment an interrupt is
+useful is while a run is still going, and a run still going is a run nobody has recorded
+yet. Ranking the last recorded experiment above it would miss the case the command exists
+for.
 
 Marking every open hypothesis would be wrong. HYPOTHESIZE exists to hold competing
 explanations, and an interrupt is not a verdict on all of them.
