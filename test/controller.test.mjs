@@ -699,3 +699,73 @@ describe("a project git never heard of", () => {
     }
   });
 });
+
+describe("the tree fingerprint, which could not fail before", () => {
+  it("survives_a_diff_larger_than_any_buffer", () => {
+    // At roughly 32 MB of changed content `git diff HEAD` overflowed the output buffer,
+    // the error was swallowed, and the empty string it returned is exactly what a clean
+    // tree produces. A dirty tree hashed identically to a clean one and a stale
+    // verification passed the Stop gate. The diff is streamed through a file now.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-big-"));
+    try {
+      const git = (...args) =>
+        execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      git("init", "-q");
+      git("config", "user.email", "cb@example.invalid");
+      git("config", "user.name", "cb");
+      fs.writeFileSync(path.join(dir, "big.dat"), "A".repeat(40 * 1024 * 1024));
+      git("add", "-A");
+      git("commit", "-qm", "first");
+      cb(dir, ["init"]);
+      const clean = JSON.parse(cb(dir, ["status", "--json"]).stdout).treeNow;
+      fs.writeFileSync(path.join(dir, "big.dat"), "B".repeat(40 * 1024 * 1024));
+      const dirty = JSON.parse(cb(dir, ["status", "--json"]).stdout).treeNow;
+      assert.notEqual(clean, dirty, "40MB of changed content must not hash as a clean tree");
+      assert.notEqual(clean, "unknown");
+      assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses_a_repository_with_no_baseline_to_measure_against", () => {
+    // Every file is untracked in a commitless repo, and untracked files are fingerprinted
+    // by name, so the source could be rewritten entirely without the hash moving.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-nocommit-"));
+    try {
+      execFileSync("git", ["-C", dir, "init", "-q"]);
+      const refused = cb(dir, ["init"], { expect: 1 });
+      assert.match(refused.stderr, /no commits/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("which project a tool call belongs to", () => {
+  it("finds_the_open_session_above_it_rather_than_failing_open", () => {
+    // A nested repository resolved to its own root, where no state file exists, and no
+    // state file means INACTIVE, and INACTIVE permits everything. An edit to a file in the
+    // governed repository was allowed because the shell happened to be inside a vendored one.
+    const outer = repo();
+    const inner = path.join(outer.dir, "vendor-lib");
+    fs.mkdirSync(inner);
+    execFileSync("git", ["-C", inner, "init", "-q"]);
+    try {
+      cb(outer.dir, ["init"]);
+      const hook = fileURLToPath(new URL("../hooks/pre-tool-use.mjs", import.meta.url));
+      const event = JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Edit",
+        tool_input: { file_path: path.join(outer.dir, "source.txt") },
+        cwd: inner,
+      });
+      const env = { ...process.env };
+      delete env.CLAUDE_PROJECT_DIR;
+      const out = execFileSync(process.execPath, [hook], { input: event, encoding: "utf8", env });
+      assert.match(out, /"permissionDecision":"deny"/);
+    } finally {
+      fs.rmSync(outer.dir, { recursive: true, force: true });
+    }
+  });
+});
