@@ -1,0 +1,91 @@
+#!/usr/bin/env node
+// The protocol words, recognised before the turn starts.
+//
+// A running turn cannot be interrupted by a new instruction, so a word typed now takes
+// effect at the next tool boundary rather than mid-thought. That is what SUSPEND buys: the
+// PreToolUse gate reads the state before every action, so the session stops before the
+// next external thing happens rather than after it.
+
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { load, save, diffHash } from "../lib/controller.mjs";
+import { readHook, respond } from "./io.mjs";
+
+const CB = fileURLToPath(new URL("../bin/cb", import.meta.url));
+const event = await readHook();
+const root = event.cwd ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
+const prompt = String(event.user_prompt ?? "").trim();
+
+// Only a line that is nothing but the word. "suspend the animation" is a request about the
+// product, not a protocol command, and a hook that guessed would be worse than no hook.
+const match = /^(SUSPEND|RESUME|VERIFY|STATUS|REFUTE|REJECT)(?:\s+(H\d+))?$/.exec(prompt);
+if (!match) respond({});
+
+const [, word, id] = match;
+const cb = (...args) => {
+  try {
+    return execFileSync(process.execPath, [CB, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    return `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+};
+
+let context;
+switch (word) {
+  case "SUSPEND":
+    cb("transition", "suspended");
+    context =
+      "circuit-breaker: SUSPENDED. Stop at the next tool boundary, leave the tree as it is, " +
+      "and report the state, the open hypotheses and the one thing you were about to do. " +
+      "Take no further action until RESUME.";
+    break;
+  case "RESUME":
+    context = `circuit-breaker: ${cb("transition", "resume").trim()}`;
+    break;
+  case "VERIFY":
+    context =
+      `circuit-breaker: ${cb("transition", "verify").trim()}. Run the original reproduction ` +
+      `first, then each gate, recording every one with cb gate. A gate nobody ran is ` +
+      `"unknown", which is an answer; it is not a pass.`;
+    break;
+  case "STATUS":
+    context = cb("status");
+    break;
+  case "REJECT": {
+    if (!id) respond({});
+    context = `circuit-breaker: ${cb("hypothesis", "reject", id).trim()}`;
+    break;
+  }
+  case "REFUTE": {
+    if (!id) respond({});
+    const state = load(root);
+    const claim = state.hypotheses.find((h) => h.id === id);
+    if (!claim) respond({ systemMessage: `circuit-breaker: no hypothesis ${id}` });
+    const evidence = state.experiments
+      .filter((e) => e.hypothesis === id)
+      .map((e) => `  ${e.id} [${e.classification}] exit ${e.exit}: ${e.command}${e.artifact ? ` -> ${e.artifact}` : ""}`)
+      .join("\n");
+    // The packet is the claim and the evidence, and nothing else. The implementer's account
+    // of why it believes itself is exactly what must not travel: a reviewer given the story
+    // grades the story.
+    context =
+      `circuit-breaker: hand this to the skeptic subagent and nothing else. No summary of ` +
+      `your reasoning, no account of what you tried, no reassurance.\n\n` +
+      `CLAIM (${claim.id}): ${claim.claim}\n` +
+      `BECAUSE: ${claim.because}\n` +
+      `FALSIFIER THE IMPLEMENTER OFFERED: ${claim.falsifier}\n` +
+      `EVIDENCE ON RECORD:\n${evidence || "  none"}\n` +
+      `TREE: ${diffHash(root)}\n\n` +
+      `Report its verdict verbatim. If it returns FALSIFIED or UNSUPPORTED, run ` +
+      `cb hypothesis reject ${claim.id} and say what you will test instead.`;
+    break;
+  }
+  default:
+    respond({});
+}
+
+respond({ hookSpecificOutput: { hookEventName: "UserPromptSubmit" }, additionalContext: context });
