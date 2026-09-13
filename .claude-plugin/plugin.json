@@ -1,7 +1,7 @@
 {
   "name": "circuit-breaker",
   "displayName": "Circuit Breaker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Investigation, mutation, refutation and verification as states a hook enforces, rather than instructions a model is asked to follow",
   "author": {
     "name": "Quintin Botes",

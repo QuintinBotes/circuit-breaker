@@ -91,19 +91,32 @@ switch (word) {
       .filter((e) => e.hypothesis === id)
       .map((e) => `  ${e.id} [${e.classification}] exit ${e.exit}: ${e.command}${e.artifact ? ` -> ${e.artifact}` : ""}`)
       .join("\n");
-    // The packet is the claim and the evidence, and nothing else. The implementer's account
-    // of why it believes itself is exactly what must not travel: a reviewer given the story
-    // grades the story.
+    // The packet is the claim, what it blames, what it cites and the evidence, and nothing
+    // else. The implementer's account of why it believes itself is exactly what must not
+    // travel: a reviewer given the story grades the story.
+    //
+    // The blame and the grounding belong in it because a reviewer asked to break a claim
+    // about a compiler needs to know that is what it is, and because the citation is the
+    // thing to check — whether it says what the claim says is most of the review.
+    const grounding = claim.cites
+      ? `CITES: ${claim.cites}\n`
+      : claim.undocumented
+        ? `NO DOCUMENTATION FOUND: ${claim.undocumented}\n`
+        : `GROUNDING: none on record\n`;
     context =
       `circuit-breaker: hand this to the skeptic subagent and nothing else. No summary of ` +
       `your reasoning, no account of what you tried, no reassurance.\n\n` +
       `CLAIM (${claim.id}): ${claim.claim}\n` +
       `BECAUSE: ${claim.because}\n` +
+      `BLAMES: ${claim.blames ?? "unrecorded"}\n` +
+      grounding +
       `FALSIFIER THE IMPLEMENTER OFFERED: ${claim.falsifier}\n` +
       `EVIDENCE ON RECORD:\n${evidence || "  none"}\n` +
       `TREE: ${diffHash(root)}\n\n` +
-      `Report its verdict verbatim. If it returns FALSIFIED or UNSUPPORTED, run ` +
-      `${CB} hypothesis reject ${claim.id} and say what you will test instead.`;
+      `Report its verdict verbatim, then record it: ` +
+      `${CB} hypothesis verdict ${claim.id} --verdict <what it returned> ` +
+      `--unresolved "<what it could not settle>". FALSIFIED and UNSUPPORTED reject the ` +
+      `hypothesis as they are recorded; say what you will test instead.`;
     break;
   }
   default:

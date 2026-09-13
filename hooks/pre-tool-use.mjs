@@ -44,14 +44,23 @@ try {
 // condition that is almost never set would be the wrong trade.
 if (state.interrupt) {
   const stop = state.interrupt;
-  withLock(root, () => {
-    const fresh = load(root);
-    // Cleared whether or not the deny below is delivered, so a hook that dies here cannot
-    // leave a session interrupting every call forever.
-    if (!fresh.interrupt) return;
-    fresh.interrupt = null;
-    save(fresh, root);
-  });
+  try {
+    withLock(root, () => {
+      const fresh = load(root);
+      // Cleared whether or not the deny below is delivered, so a hook that dies here cannot
+      // leave a session interrupting every call forever.
+      if (!fresh.interrupt) return;
+      fresh.interrupt = null;
+      save(fresh, root);
+    });
+  } catch {
+    // Clearing the flag is a write and a write can fail: a read-only directory, a full
+    // disk. That failure must not escape. An uncaught one exits this hook non-zero with
+    // nothing on stdout, which Claude Code reads as no decision at all and the tool call
+    // proceeds — so a stop lost to a full disk would be a stop that never happened. The
+    // flag stays set instead, and the next call is denied again, which is the safe way to
+    // be wrong.
+  }
   respond({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
