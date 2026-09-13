@@ -288,13 +288,24 @@ describe("what a completion claim has to carry", () => {
     assert.match(blocked.stdout, /re-run it/);
   });
 
-  it("counts_an_untracked_file_as_a_change_by_name_and_not_by_content", () => {
-    const before = cb(dir, ["status", "--json"]).stdout;
+  it("counts_an_untracked_file_by_its_content_and_an_ignored_one_not_at_all", () => {
+    // A fix written into a new module is the ordinary case, and hashing untracked files by
+    // name alone meant such a file could be rewritten wholesale after a verification while
+    // the Stop gate still called it fresh. Build churn is excluded by .gitignore instead,
+    // which is where it actually lives.
+    const tree = () => JSON.parse(cb(dir, ["status", "--json"]).stdout).treeNow;
+    const before = tree();
     fs.writeFileSync(path.join(dir, "notes.md"), "a");
-    const named = cb(dir, ["status", "--json"]).stdout;
-    assert.notEqual(JSON.parse(before).treeNow, JSON.parse(named).treeNow);
-    fs.writeFileSync(path.join(dir, "notes.md"), "a much longer body\n");
-    assert.equal(JSON.parse(named).treeNow, JSON.parse(cb(dir, ["status", "--json"]).stdout).treeNow);
+    const named = tree();
+    assert.notEqual(before, named);
+    fs.writeFileSync(path.join(dir, "notes.md"), "rewritten entirely\n");
+    assert.notEqual(named, tree(), "an untracked file's content must move the hash");
+
+    fs.writeFileSync(path.join(dir, ".gitignore"), "build/\n");
+    fs.mkdirSync(path.join(dir, "build"), { recursive: true });
+    const ignored = tree();
+    fs.writeFileSync(path.join(dir, "build", "out.js"), "churn\n");
+    assert.equal(ignored, tree(), "a gitignored artifact must not invalidate a verification");
   });
 });
 
@@ -766,6 +777,75 @@ describe("which project a tool call belongs to", () => {
       assert.match(out, /"permissionDecision":"deny"/);
     } finally {
       fs.rmSync(outer.dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("what the twelve workflows needed and could not have", () => {
+  let dir;
+  before(() => {
+    dir = repo().dir;
+    cb(dir, ["init"]);
+    cb(dir, ["hypothesis", "add", "--claim", "c", "--because", "b", "--falsifier", "f"]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+  });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const allowed = (c) => cb(dir, ["check", "--tool", "Bash", "--command", c]).code;
+  const denied = (c) => cb(dir, ["check", "--tool", "Bash", "--command", c], { expect: 2 }).code;
+
+  it("never_lets_a_bare_git_stash_revert_the_patch_under_verification", () => {
+    // `git stash` is `git stash push`. Classified as a read it would silently undo the very
+    // change the session is in the middle of verifying.
+    assert.equal(denied("git stash"), 2);
+    assert.equal(denied("git stash pop"), 2);
+    assert.equal(allowed("git stash list"), 0);
+  });
+
+  it("runs_a_script_under_timeout_which_is_what_a_flaky_repro_needs", () => {
+    // `timeout` was a wrapper whose duration became the command, so this was refused as a
+    // command called "5".
+    assert.equal(allowed("timeout 5 ./repro.sh"), 0);
+    assert.equal(allowed("timeout 30s ./repro.sh"), 0);
+    assert.equal(allowed("nice -n 10 ./bench.sh"), 0);
+    assert.equal(denied("timeout 5 rm -rf src"), 2);
+  });
+
+  it("stops_a_server_an_experiment_started", () => {
+    assert.equal(allowed("kill 12345"), 0);
+    assert.equal(allowed("pkill -f src/server.js"), 0);
+  });
+
+  it("writes_an_artifact_to_scratch_but_not_into_the_tree_or_the_system", () => {
+    // `experiment record --artifact <path>` asks for a file the gate would otherwise never
+    // let an experiment create.
+    assert.equal(allowed("./bench.sh > /tmp/cb-bench.json"), 0);
+    assert.equal(denied("./bench.sh > results.json"), 2);
+    assert.equal(denied("ls > /etc/hosts"), 2);
+  });
+
+  it("does_not_call_a_diagnostic_read_only", () => {
+    // Saying "read-only" about a command that runs code undercut every other message.
+    const out = cb(dir, ["check", "--tool", "Bash", "--command", "./repro.sh"]);
+    assert.doesNotMatch(out.stdout, /read-only/);
+  });
+});
+
+describe("a tool the gate has never heard of", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("is_judged_by_what_its_verb_says_it_does", () => {
+    // The tool list knew browser verbs and nothing else, so an MCP filesystem server wrote
+    // in OBSERVE without the gate being asked.
+    for (const tool of ["mcp__filesystem__write_file", "mcp__filesystem__edit_file",
+                        "mcp__github__create_or_update_file", "mcp__anything__delete_thing"]) {
+      assert.equal(cb(dir, ["check", "--tool", tool], { expect: 2 }).code, 2, tool);
+    }
+    for (const tool of ["mcp__filesystem__read_file", "mcp__anything__list_things"]) {
+      assert.equal(cb(dir, ["check", "--tool", tool]).code, 0, tool);
     }
   });
 });

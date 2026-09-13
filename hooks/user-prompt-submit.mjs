@@ -16,9 +16,11 @@ const event = await readHook();
 const root = rootFor(event);
 const prompt = String(event.prompt ?? "").trim();
 
-// Only a line that is nothing but the word. "suspend the animation" is a request about the
-// product, not a protocol command, and a hook that guessed would be worse than no hook.
-const match = /^(SUSPEND|RESUME|VERIFY|STATUS|REFUTE|REJECT)(?:\s+(H\d+))?$/.exec(prompt);
+// A line that is nothing but the word, anywhere in the prompt. Anchoring on the whole
+// prompt meant "do the thing\nSUSPEND" was inert, and SUSPEND is the emergency brake.
+// "suspend the animation" is still a sentence about a product and is still ignored.
+const WORD = /^(SUSPEND|RESUME|VERIFY|STATUS|REFUTE|REJECT)(?:[ \t]+(H\d+))?$/;
+const match = prompt.split(/\r?\n/).map((line) => WORD.exec(line.trim())).find(Boolean);
 if (!match) respond({});
 
 const [, word, id] = match;
@@ -46,14 +48,26 @@ switch (word) {
   case "RESUME":
     context = `circuit-breaker: ${cb("transition", "resume").trim()}`;
     break;
-  case "VERIFY":
+  case "VERIFY": {
+    const moved = cb("transition", "verify").trim();
+    if (!/-> VERIFY/.test(moved)) {
+      respond({
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext:
+            `circuit-breaker: VERIFY was refused. ${moved.replace(/^cb: /, "")} Get the ` +
+            `session into a state that leads to VERIFY first.`,
+        },
+      });
+    }
     context =
-      `circuit-breaker: ${cb("transition", "verify").trim()}. Run the original reproduction ` +
+      `circuit-breaker: ${moved}. Run the original reproduction ` +
       `first, in the form the symptom was reported: drive the browser if it was a UI ` +
       `symptom, call the API if it was an API symptom, launch the app if it was a launch ` +
       `hang. Then each remaining gate, recording every one with ${CB} gate. A gate nobody ran ` +
       `is "unknown", which is an answer; it is not a pass. The CLI is ${CB}.`;
     break;
+  }
   case "STATUS":
     // Observed in a real session: handed the state, the agent went looking for the state
     // directory anyway. The context has to say that answering is the whole job, not the

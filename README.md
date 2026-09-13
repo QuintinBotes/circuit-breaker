@@ -154,8 +154,37 @@ is read:
 - `$( )` and backticks are judged as the command lines they are.
 - `sed -i`, `perl -i`, `find -delete`, `awk` with its own redirect, and `git config` that
   sets rather than gets are writes, despite reading in their other forms.
-- `cb end` and re-`init` are refused to the agent in both spellings, including
-  `node "<path>/bin/cb" end`. They are the two ways out rather than through.
+- `cb end` and re-`init` are refused to the agent in every spelling, including
+  `node "<path>/bin/cb" end`, a renamed symlink, and behind a wrapper. They are the two
+  ways out rather than through.
+- Wrappers are stripped to the command they run, so `env rm -rf src` is `rm`, not `env`.
+- A construct the lexer will not vouch for, such as a heredoc, is refused and says so
+  rather than being skimmed and waved through.
+- MCP tools are judged by their verb, so `mcp__filesystem__write_file` is a mutation
+  wherever it comes from.
+
+## Known limits
+
+**Verification goes stale on incidental files.** A stray `isolate-*.log` from `node --prof`
+moves the fingerprint and invalidates a recorded verification. Add such files to
+`.gitignore`: everything git ignores is excluded from the fingerprint, which is what that
+exclusion is for.
+
+**The reproduction gate is critical, so an honest `unknown` will not pass `cb check-stop`.**
+That is deliberate for a fix to a bug you never reproduced. The `Stop` hook handles it
+properly: it blocks once, and on the next attempt lets the session end with the work
+labelled unverified. Only the CLI's exit code does not reflect that, so do not key a script
+on `check-stop` alone.
+
+**`PostToolUse` fingerprints the tree after every tool call**, which costs about a second on
+a repository with ten thousand changed files. That is git's own diff time. A project with no
+session open pays nothing.
+
+**Reproduce-first costs two transitions.** Running code is denied in `OBSERVE`, so the first
+hypothesis is usually the symptom itself and the reproduction is its experiment.
+
+**A no-fix investigation cannot record gates.** `VERIFY` is reachable only from `PATCH`, so
+"I looked, and nothing needs changing" finishes by the no-change route instead.
 
 ## Limits
 
@@ -163,7 +192,8 @@ The skeptic is not independent. It shares the implementer's model and its priors
 protects an answer is the evidence packet and the reading it does, not a change of voice.
 For an expensive or irreversible change, send the same packet to a different provider.
 
-The state file is not a sandbox. An `EXPERIMENT` may run `node`, and `node` can write a file.
+The state file is not a sandbox, and it is a discipline rather than a security boundary. An
+`EXPERIMENT` may run `node`, and `node` can write a file.
 A person who types `cb transition patch` on the agent's behalf has still transitioned. This
 makes discipline the default and a lapse deliberate; it does not make a lapse impossible.
 
@@ -184,7 +214,7 @@ evals/              four cases built from real failures
 test/               real git repositories, the real CLI, no mocks
 ```
 
-`npm test` runs 42 tests against temporary git repositories driving `bin/cb` as a process,
+`npm test` runs 67 tests against temporary git repositories driving `bin/cb` as a process,
 plus an end-to-end script that pipes real Claude Code hook payloads through the real hooks.
 `npm run eval` scores the plugin against its four cases, with and without itself loaded; see
 [evals/README.md](evals/README.md).

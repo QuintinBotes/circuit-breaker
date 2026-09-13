@@ -81,7 +81,8 @@ respond({
         ? `circuit-breaker: that run is recorded${exit === null ? "" : ` (exit ${exit})`}. It ` +
           `is not evidence until it is classified. Run: ${CB} experiment record --hypothesis ` +
           `<${open.join("|") || "id"}> --command ${JSON.stringify(action)} --exit ` +
-          `${exit ?? "<code>"} --classification supports|falsifies|inconclusive. ` +
+          `${exit === null ? "<the exit code you saw>" : exit} ` +
+          `--classification supports|falsifies|inconclusive. ` +
           `"Interesting" and "seems likely" are not classifications.`
         : `circuit-breaker: in VERIFY, a run that answers a gate is recorded with ` +
           `${CB} gate <id> --result pass|fail|unknown --evidence "<the line that shows it>".`,

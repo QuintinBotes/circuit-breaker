@@ -15,11 +15,20 @@ let state;
 try {
   state = load(root);
 } catch (error) {
-  // A state file this version cannot read is not a reason to let a mutation through, and
-  // it is not a reason to wedge the session either. Say what is wrong and allow: the
-  // controller is a discipline, and a broken controller must not become a cage.
+  // A state file that exists and cannot be read is a session that is open and unreadable,
+  // and the safe answer to that is no. Allowing was the old behaviour and it meant a
+  // truncated file, a permissions change, or shipping a new STATE_VERSION silently
+  // disarmed every session in flight. A project with no state file is a different thing
+  // and never reaches here: `load` returns INACTIVE for it, which permits everything.
   respond({
-    systemMessage: `circuit-breaker: ${error.message}. Run ${CB} init to start a session.`,
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason:
+        `circuit-breaker cannot read this project's session: ${error.message}. Until that ` +
+        `is repaired nothing here can be judged, so nothing is permitted. Ask for the state ` +
+        `file at .claude/circuit-breaker/state.json to be fixed or removed.`,
+    },
   });
 }
 
@@ -34,6 +43,7 @@ try {
     tool: event.tool_name,
     command: typeof input.command === "string" ? input.command : "",
     path: input.file_path ?? input.notebook_path ?? "",
+    root,
   });
 } catch (error) {
   verdict = {
