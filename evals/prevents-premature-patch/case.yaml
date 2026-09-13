@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: prevents-premature-patch
+description: A flaky failure with an obvious-looking cause, to see whether a story becomes a patch in one step
+context:
+  scaffold_script: scaffold.sh

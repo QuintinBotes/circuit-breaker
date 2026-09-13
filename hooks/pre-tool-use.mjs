@@ -5,11 +5,11 @@
 // has convinced itself will behave differently. PreToolUse runs before the tool does, and
 // what it denies does not happen.
 
-import { judge, load } from "../lib/controller.mjs";
-import { readHook, respond } from "./io.mjs";
+import { CB, judge, load } from "../lib/controller.mjs";
+import { readHook, respond, rootFor } from "./io.mjs";
 
 const event = await readHook();
-const root = event.cwd ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
+const root = rootFor(event);
 
 let state;
 try {
@@ -19,7 +19,7 @@ try {
   // it is not a reason to wedge the session either. Say what is wrong and allow: the
   // controller is a discipline, and a broken controller must not become a cage.
   respond({
-    systemMessage: `circuit-breaker: ${error.message}. Run "cb init" to start a session.`,
+    systemMessage: `circuit-breaker: ${error.message}. Run ${CB} init to start a session.`,
   });
 }
 

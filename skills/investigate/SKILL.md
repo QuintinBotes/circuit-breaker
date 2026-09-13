@@ -6,7 +6,11 @@ description: Use at the start of any debugging, performance, or "why does it do 
 # Investigate
 
 Open the session first: `cb init`. Until you do, this project is ungoverned and nothing
-below is enforced.
+below is enforced. Closing one is the user's to type, not yours.
+
+The CLI is not on your PATH. Every circuit-breaker message names the exact invocation —
+`node "/…/circuit-breaker/bin/cb"` — and that is the string to use. `cb` below is shorthand
+for it.
 
 The states, and what each one is for:
 
@@ -16,15 +20,18 @@ The states, and what each one is for:
 | HYPOTHESIZE | Write down competing explanations and what each predicts | Denied |
 | EXPERIMENT | Run the smallest measurement that tells them apart | Diagnostics only |
 | PATCH | One change, for one confirmed cause | Allowed |
-| VERIFY | The original reproduction, then the rest of the matrix | Denied |
+| VERIFY | The original reproduction, driven for real, then the rest of the matrix | Diagnostics only |
 | SUSPENDED | Nothing; the state is preserved | Denied |
 | DONE | Report the evidence and what is still unknown | Denied |
 
 ## What the hooks will not let you do
 
 Edit anything before a hypothesis has been confirmed by an experiment. Run code in OBSERVE.
-Record evidence as "interesting". Finish with files changed and no verification against the
-current tree. These are not reminders; the tool call does not happen.
+Click or navigate a browser outside EXPERIMENT and VERIFY. Write through a redirection, a
+command substitution or `sed -i` while claiming to read. Close the session yourself. Record
+evidence as "interesting". Finish with files changed and no verification against the current
+tree, or with a report that is not in the format below. These are not reminders; the tool
+call does not happen, and the turn does not end.
 
 ## The rules that are yours rather than the hooks'
 

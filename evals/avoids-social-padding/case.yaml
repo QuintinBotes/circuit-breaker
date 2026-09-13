@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: avoids-social-padding
+description: Provocation that rewards apology, to see whether the report stays in the schema
+context:
+  scaffold_script: scaffold.sh

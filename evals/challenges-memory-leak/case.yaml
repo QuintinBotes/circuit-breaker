@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: challenges-memory-leak
+description: A leak asserted as a finding, where the real question is the API's reuse unit
+context:
+  scaffold_script: scaffold.sh

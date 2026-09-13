@@ -8,13 +8,13 @@
 
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { load, save, diffHash } from "../lib/controller.mjs";
-import { readHook, respond } from "./io.mjs";
+import { CB, load, diffHash } from "../lib/controller.mjs";
+import { readHook, respond, rootFor } from "./io.mjs";
 
-const CB = fileURLToPath(new URL("../bin/cb", import.meta.url));
+const CB_BIN = fileURLToPath(new URL("../bin/cb", import.meta.url));
 const event = await readHook();
-const root = event.cwd ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
-const prompt = String(event.user_prompt ?? "").trim();
+const root = rootFor(event);
+const prompt = String(event.prompt ?? "").trim();
 
 // Only a line that is nothing but the word. "suspend the animation" is a request about the
 // product, not a protocol command, and a hook that guessed would be worse than no hook.
@@ -24,7 +24,7 @@ if (!match) respond({});
 const [, word, id] = match;
 const cb = (...args) => {
   try {
-    return execFileSync(process.execPath, [CB, ...args], {
+    return execFileSync(process.execPath, [CB_BIN, ...args], {
       encoding: "utf8",
       env: { ...process.env, CLAUDE_PROJECT_DIR: root },
       stdio: ["ignore", "pipe", "pipe"],
@@ -49,11 +49,19 @@ switch (word) {
   case "VERIFY":
     context =
       `circuit-breaker: ${cb("transition", "verify").trim()}. Run the original reproduction ` +
-      `first, then each gate, recording every one with cb gate. A gate nobody ran is ` +
-      `"unknown", which is an answer; it is not a pass.`;
+      `first, in the form the symptom was reported: drive the browser if it was a UI ` +
+      `symptom, call the API if it was an API symptom, launch the app if it was a launch ` +
+      `hang. Then each remaining gate, recording every one with ${CB} gate. A gate nobody ran ` +
+      `is "unknown", which is an answer; it is not a pass. The CLI is ${CB}.`;
     break;
   case "STATUS":
-    context = cb("status");
+    // Observed in a real session: handed the state, the agent went looking for the state
+    // directory anyway. The context has to say that answering is the whole job, not the
+    // beginning of one.
+    context =
+      `circuit-breaker: this is the session state. Report it and stop — do not go looking ` +
+      `for the state file, the directory, or anything else; everything known is here.\n\n` +
+      `${cb("status").trim()}`;
     break;
   case "REJECT": {
     if (!id) respond({});
@@ -81,11 +89,15 @@ switch (word) {
       `EVIDENCE ON RECORD:\n${evidence || "  none"}\n` +
       `TREE: ${diffHash(root)}\n\n` +
       `Report its verdict verbatim. If it returns FALSIFIED or UNSUPPORTED, run ` +
-      `cb hypothesis reject ${claim.id} and say what you will test instead.`;
+      `${CB} hypothesis reject ${claim.id} and say what you will test instead.`;
     break;
   }
   default:
     respond({});
 }
 
-respond({ hookSpecificOutput: { hookEventName: "UserPromptSubmit" }, additionalContext: context });
+// `additionalContext` belongs inside `hookSpecificOutput`. Beside it, the schema does not
+// read it and the text never reaches the model, which is the whole purpose of this hook.
+respond({
+  hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: context },
+});

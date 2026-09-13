@@ -1,7 +1,9 @@
-// What every hook does the same way: read the event, write one answer, exit.
+// What every hook does the same way: read the event, find the project, write one answer.
 //
 // Kept here rather than repeated four times, because a hook that writes malformed JSON is
 // a hook whose decision is silently lost, and one implementation is one thing to get right.
+
+import { projectDir } from "../lib/controller.mjs";
 
 /** The event on stdin, or an empty object when there is nothing to read. */
 export async function readHook() {
@@ -14,6 +16,18 @@ export async function readHook() {
   } catch {
     return {};
   }
+}
+
+/**
+ * The project this event is about.
+ *
+ * The event's `cwd` is a hint and not the answer: the controller resolves it to the
+ * repository root, so a session started at the top is the same session a tool call made
+ * from a subdirectory sees. Resolved the one way, here, so the hooks and `bin/cb` can
+ * never disagree about which state file they mean.
+ */
+export function rootFor(event) {
+  return projectDir(event?.cwd);
 }
 
 /**

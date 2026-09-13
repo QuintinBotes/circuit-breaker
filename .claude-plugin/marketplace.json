@@ -1,0 +1,15 @@
+{
+  "name": "circuit-breaker",
+  "owner": {
+    "name": "Quintin Botes",
+    "url": "https://github.com/QuintinBotes"
+  },
+  "plugins": [
+    {
+      "name": "circuit-breaker",
+      "source": "./",
+      "description": "Investigation, mutation, refutation and verification as states a hook enforces, rather than instructions a model is asked to follow"
+    }
+  ],
+  "description": "The circuit-breaker plugin: a debugging state machine Claude Code hooks enforce"
+}

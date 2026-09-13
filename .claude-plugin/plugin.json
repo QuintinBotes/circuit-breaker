@@ -14,10 +14,6 @@
     "hooks",
     "state-machine"
   ],
-  "hooks": "./hooks/hooks.json",
-  "agents": [
-    "./agents/skeptic.md"
-  ],
   "experimental": {
     "evals": "evals"
   }
