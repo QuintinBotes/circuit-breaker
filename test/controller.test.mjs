@@ -184,6 +184,32 @@ describe("what a shell command is allowed to be", () => {
     assert.match(denied.stdout, /patch-it/);
   });
 
+  it("counts_a_redirection_as_a_write_whatever_program_is_in_front_of_it", () => {
+    // Every command on the read list becomes a way to overwrite a file the moment a
+    // redirection goes unread, which is how the first version of this gate let four
+    // different writes through while reporting that it had denied them.
+    assert.equal(deniedIn("OBSERVE", "cat notes > /etc/hosts").code, 2);
+    assert.equal(deniedIn("OBSERVE", "cat a >> b").code, 2);
+    assert.match(deniedIn("OBSERVE", "echo x > f").stdout, /redirects output into a file/);
+    // A descriptor duplication is not a file, and a chevron inside a string is an argument.
+    allowedIn("OBSERVE", "git log --format=%h 2>&1");
+    allowedIn("OBSERVE", "rg \"a > b\" src/");
+  });
+
+  it("reads_the_commands_inside_a_substitution_before_the_line_that_holds_them", () => {
+    const denied = deniedIn("OBSERVE", "echo $(rm -rf build)");
+    assert.match(denied.stdout, /inside \$\( \)/);
+    allowedIn("OBSERVE", "echo $(git rev-parse HEAD)");
+  });
+
+  it("tells_the_printing_half_of_a_program_from_the_writing_half", () => {
+    allowedIn("OBSERVE", "sed -n '1,20p' app.js");
+    assert.equal(deniedIn("OBSERVE", "sed -i '' s/a/b/ app.js").code, 2);
+    assert.equal(deniedIn("OBSERVE", "sed -i.bak s/a/b/ app.js").code, 2);
+    // tee prints, which is the half that misled the first version of the list.
+    assert.equal(deniedIn("OBSERVE", "echo hi | tee /tmp/x").code, 2);
+  });
+
   it("lets_an_experiment_run_a_benchmark_but_not_an_install", () => {
     cb(dir, ["transition", "hypothesize"]);
     cb(dir, ["transition", "experiment"]);
