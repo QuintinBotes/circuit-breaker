@@ -54,6 +54,9 @@ const HYPOTHESIS = [
   "--claim", "per-file snapshots retain TypeScript programs",
   "--because", "peak memory scales with open snapshots",
   "--falsifier", "per-project snapshots retain a similar program count",
+  // The claim names TypeScript and blames the caller's own snapshot lifetime, which is
+  // exactly why the claim text is not what decides this field.
+  "--blames", "self",
 ];
 
 describe("a project nobody has started a session in", () => {
@@ -412,7 +415,7 @@ describe("a second cause in the same session", () => {
     // that makes a failure name one cause would wedge the session for good, and the only
     // way out would be to wipe the ledger.
     const cycle = (hypothesis, file) => {
-      cb(dir, ["hypothesis", "add", "--claim", `c${hypothesis}`, "--because", "b", "--falsifier", "f"]);
+      cb(dir, ["hypothesis", "add", "--claim", `c${hypothesis}`, "--because", "b", "--falsifier", "f", "--blames", "self"]);
       if (cb(dir, ["status"]).stdout.includes("STATE: OBSERVE")) cb(dir, ["transition", "hypothesize"]);
       cb(dir, ["transition", "experiment"]);
       cb(dir, ["experiment", "record", "--hypothesis", hypothesis, "--command", "./x",
@@ -786,7 +789,7 @@ describe("what the twelve workflows needed and could not have", () => {
   before(() => {
     dir = repo().dir;
     cb(dir, ["init"]);
-    cb(dir, ["hypothesis", "add", "--claim", "c", "--because", "b", "--falsifier", "f"]);
+    cb(dir, ["hypothesis", "add", "--claim", "c", "--because", "b", "--falsifier", "f", "--blames", "self"]);
     cb(dir, ["transition", "hypothesize"]);
     cb(dir, ["transition", "experiment"]);
   });
@@ -981,5 +984,438 @@ describe("the two commands that grant something, attacked", () => {
     cb(dir, ["scratch", "newfix.js"]);
     assert.equal(cb(dir, ["check-stop"], { expect: 2 }).code, 2,
       "declaring a file scratch must not excuse a rewrite the gates never saw");
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// v2: who a hypothesis blames, and what blaming someone else costs.
+// ---------------------------------------------------------------------------------------
+
+describe("who a hypothesis blames", () => {
+  let dir;
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); });
+
+  it("refuses_a_hypothesis_that_does_not_say_who_it_blames", () => {
+    const refused = cb(
+      dir,
+      ["hypothesis", "add", "--claim", "the cache is never evicted", "--because", "memory grows",
+        "--falsifier", "memory is flat with eviction off"],
+      { expect: 1 },
+    );
+    assert.match(refused.stderr, /--blames/);
+  });
+
+  it("refuses_a_blame_that_is_neither_self_nor_external", () => {
+    const refused = cb(
+      dir,
+      ["hypothesis", "add", "--claim", "the cache is never evicted", "--because", "memory grows",
+        "--falsifier", "memory is flat with eviction off", "--blames", "probably-tsc"],
+      { expect: 1 },
+    );
+    assert.match(refused.stderr, /self or external/);
+  });
+
+  it("keeps_the_blame_on_the_record", () => {
+    cb(dir, [...HYPOTHESIS]);
+    const state = JSON.parse(cb(dir, ["status", "--json"]).stdout);
+    assert.equal(state.hypotheses[0].blames, "self");
+  });
+
+  it("speaks_version_two_and_says_what_to_do_about_version_one", () => {
+    const file = `${dir}/.claude/circuit-breaker/state.json`;
+    const state = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(state.version, 2);
+    fs.writeFileSync(file, JSON.stringify({ ...state, version: 1 }));
+    const refused = cb(dir, ["status"], { expect: 1 });
+    assert.match(refused.stderr, /version 1, this cb speaks 2/);
+    assert.match(refused.stderr, /cb" end/);
+  });
+});
+
+describe("grounding a claim that blames someone else", () => {
+  let dir;
+  const EXTERNAL = [
+    "hypothesis", "add",
+    "--claim", "tsc retains every program it has ever parsed",
+    "--because", "peak memory never falls between builds",
+    "--falsifier", "a build with one file peaks the same",
+    "--blames", "external",
+  ];
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); });
+
+  it("refuses_a_citation_that_is_prose", () => {
+    const refused = cb(dir, [...EXTERNAL, "--cites", "it is well known"], { expect: 1 });
+    assert.match(refused.stderr, /a URL or a path/);
+  });
+
+  it("refuses_a_citation_at_a_path_that_does_not_resolve", () => {
+    const refused = cb(dir, [...EXTERNAL, "--cites", "node_modules/typescript/lib/tsc.js:41022"], { expect: 1 });
+    assert.match(refused.stderr, /does not resolve/);
+  });
+
+  it("takes_a_url_and_a_path_that_resolves", () => {
+    cb(dir, [...EXTERNAL, "--cites", "https://github.com/microsoft/TypeScript/pull/1#issue"]);
+    cb(dir, [...EXTERNAL, "--cites", "source.txt:1"]);
+    const state = JSON.parse(cb(dir, ["status", "--json"]).stdout);
+    assert.equal(state.hypotheses[1].cites, "source.txt:1");
+  });
+
+  it("refuses_to_experiment_on_an_ungrounded_external_claim", () => {
+    cb(dir, EXTERNAL);
+    cb(dir, ["transition", "hypothesize"]);
+    const refused = cb(dir, ["transition", "experiment"], { expect: 1 });
+    assert.match(refused.stderr, /H1/);
+    assert.match(refused.stderr, /--cites/);
+    assert.match(refused.stderr, /--undocumented/);
+  });
+
+  it("lets_a_self_blame_claim_through_ungrounded", () => {
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    assert.match(cb(dir, ["transition", "experiment"]).stdout, /-> EXPERIMENT/);
+  });
+
+  it("takes_a_grounding_added_after_the_fact", () => {
+    cb(dir, EXTERNAL);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["hypothesis", "ground", "H1", "--undocumented", "searched the 5.4 changelog and the issue tracker"]);
+    assert.match(cb(dir, ["transition", "experiment"]).stdout, /-> EXPERIMENT/);
+  });
+
+  it("refuses_an_undocumented_statement_that_says_nothing", () => {
+    cb(dir, EXTERNAL);
+    const refused = cb(dir, ["hypothesis", "ground", "H1", "--undocumented", ""], { expect: 1 });
+    assert.match(refused.stderr, /what you searched/);
+  });
+
+  it("counts_a_rejected_claim_as_out_of_the_way", () => {
+    cb(dir, EXTERNAL);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["hypothesis", "reject", "H1"]);
+    assert.match(cb(dir, ["transition", "experiment"]).stdout, /-> EXPERIMENT/);
+  });
+
+  it("is_not_satisfied_by_a_grounded_claim_beside_an_ungrounded_one", () => {
+    cb(dir, [...EXTERNAL, "--cites", "source.txt"]);
+    cb(dir, EXTERNAL);
+    cb(dir, ["transition", "hypothesize"]);
+    const refused = cb(dir, ["transition", "experiment"], { expect: 1 });
+    assert.match(refused.stderr, /H2/);
+    assert.doesNotMatch(refused.stderr, /H1/);
+  });
+});
+
+describe("the skeptic's verdict, kept rather than asked for", () => {
+  let dir;
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); cb(dir, [...HYPOTHESIS]); });
+
+  it("refuses_a_verdict_that_is_not_one_of_the_four", () => {
+    const refused = cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "probably fine"], { expect: 1 });
+    assert.match(refused.stderr, /FALSIFIED, UNSUPPORTED, PLAUSIBLE or SUPPORTED/);
+  });
+
+  it("refuses_a_verdict_on_a_hypothesis_nobody_recorded", () => {
+    const refused = cb(dir, ["hypothesis", "verdict", "H9", "--verdict", "SUPPORTED"], { expect: 1 });
+    assert.match(refused.stderr, /no hypothesis H9/);
+  });
+
+  it("rejects_the_hypothesis_a_verdict_falsified", () => {
+    const out = cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "FALSIFIED"]).stdout;
+    assert.match(out, /rejected/);
+    assert.match(cb(dir, ["hypothesis", "list"]).stdout, /H1 \[rejected\]/);
+  });
+
+  it("rejects_the_hypothesis_a_verdict_left_unsupported", () => {
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "UNSUPPORTED"]);
+    assert.match(cb(dir, ["hypothesis", "list"]).stdout, /H1 \[rejected\]/);
+  });
+
+  it("keeps_a_plausible_verdict_without_rejecting_anything", () => {
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "PLAUSIBLE",
+      "--unresolved", "the allocator was never measured under load"]);
+    const state = JSON.parse(cb(dir, ["status", "--json"]).stdout);
+    assert.equal(state.hypotheses[0].status, "open");
+    assert.equal(state.hypotheses[0].verdict.verdict, "PLAUSIBLE");
+    assert.match(state.hypotheses[0].verdict.unresolved, /allocator/);
+  });
+
+  it("refuses_to_lift_a_rejection_with_a_kinder_verdict", () => {
+    cb(dir, ["hypothesis", "reject", "H1"]);
+    const refused = cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "SUPPORTED"], { expect: 1 });
+    assert.match(refused.stderr, /was rejected/);
+  });
+
+  it("takes_a_falsifying_verdict_on_an_already_rejected_claim", () => {
+    cb(dir, ["hypothesis", "reject", "H1"]);
+    assert.equal(cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "FALSIFIED"]).code, 0);
+  });
+});
+
+describe("patching a cause that blames someone else", () => {
+  let dir;
+  const EXTERNAL = [
+    "hypothesis", "add",
+    "--claim", "tsc retains every program it has ever parsed",
+    "--because", "peak memory never falls between builds",
+    "--falsifier", "a build with one file peaks the same",
+    "--blames", "external",
+  ];
+  /** A confirmed external claim, grounded however the caller asks. */
+  const confirmed = (grounding) => {
+    cb(dir, [...EXTERNAL, ...grounding]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, ["experiment", "record", "--hypothesis", "H1", "--command", "./bench",
+      "--exit", "0", "--classification", "supports"]);
+    cb(dir, ["hypothesis", "confirm", "H1"]);
+  };
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); });
+
+  it("refuses_a_patch_no_skeptic_has_looked_at", () => {
+    confirmed(["--cites", "source.txt:1"]);
+    const refused = cb(dir, ["transition", "patch", "--hypothesis", "H1"], { expect: 1 });
+    assert.match(refused.stderr, /hypothesis verdict H1/);
+  });
+
+  it("takes_the_patch_once_a_verdict_and_a_citation_are_on_the_record", () => {
+    confirmed(["--cites", "source.txt:1"]);
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "PLAUSIBLE"]);
+    assert.match(cb(dir, ["transition", "patch", "--hypothesis", "H1"]).stdout, /-> PATCH/);
+  });
+
+  it("refuses_an_uncited_patch_until_a_person_acknowledges_it", () => {
+    confirmed(["--undocumented", "searched the 5.4 changelog and the issue tracker"]);
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "PLAUSIBLE"]);
+    const refused = cb(dir, ["transition", "patch", "--hypothesis", "H1"], { expect: 1 });
+    assert.match(refused.stderr, /acknowledge H1/);
+    assert.match(refused.stderr, /cannot type it yourself/);
+  });
+
+  it("takes_the_uncited_patch_after_the_acknowledgement", () => {
+    confirmed(["--undocumented", "searched the 5.4 changelog and the issue tracker"]);
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "PLAUSIBLE"]);
+    cb(dir, ["acknowledge", "H1"]);
+    assert.match(cb(dir, ["transition", "patch", "--hypothesis", "H1"]).stdout, /-> PATCH/);
+  });
+
+  it("asks_none_of_this_of_a_claim_that_blames_your_own_code", () => {
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, ["experiment", "record", "--hypothesis", "H1", "--command", "./bench",
+      "--exit", "0", "--classification", "supports"]);
+    cb(dir, ["hypothesis", "confirm", "H1"]);
+    assert.match(cb(dir, ["transition", "patch", "--hypothesis", "H1"]).stdout, /-> PATCH/);
+  });
+
+  it("refuses_an_acknowledgement_of_a_hypothesis_nobody_recorded", () => {
+    const refused = cb(dir, ["acknowledge", "H9"], { expect: 1 });
+    assert.match(refused.stderr, /no hypothesis H9/);
+  });
+
+  it("keeps_the_acknowledgement_out_of_the_agents_hands_in_every_spelling", () => {
+    const CB_PATH = fileURLToPath(new URL("../bin/cb", import.meta.url));
+    const denied = (command) =>
+      cb(dir, ["check", "--tool", "Bash", "--command", command], { expect: 2 }).code;
+    assert.equal(denied("cb acknowledge H1"), 2);
+    assert.equal(denied(`node "${CB_PATH}" acknowledge H1`), 2);
+    assert.equal(denied("env cb acknowledge H1"), 2);
+    // The two shapes this gate has historically been blind to: a separator that is not a
+    // semicolon, and a command hiding inside a substitution.
+    assert.equal(denied("ls && cb acknowledge H1"), 2);
+    assert.equal(denied("echo $(cb interrupt)"), 2);
+    assert.equal(denied("timeout 5 cb interrupt"), 2);
+  });
+});
+
+describe("stopping a session from somewhere else", () => {
+  let dir;
+  /** An open hypothesis with one supporting experiment behind it, in EXPERIMENT. */
+  const measuring = () => {
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, ["experiment", "record", "--hypothesis", "H1", "--command", "./bench",
+      "--exit", "0", "--classification", "supports"]);
+  };
+  beforeEach(() => { dir = repo().dir; });
+
+  it("has_nothing_to_interrupt_where_no_session_is_open", () => {
+    const refused = cb(dir, ["interrupt"], { expect: 1 });
+    assert.match(refused.stderr, /no session/);
+  });
+
+  it("marks_the_hypothesis_it_was_measuring_and_drops_to_hypothesize", () => {
+    cb(dir, ["init"]);
+    measuring();
+    const out = cb(dir, ["interrupt"]).stdout;
+    assert.match(out, /H1/);
+    assert.match(cb(dir, ["status"]).stdout, /STATE: HYPOTHESIZE/);
+    assert.match(cb(dir, ["hypothesis", "list"]).stdout, /H1 \[interrupted\]/);
+  });
+
+  it("prefers_the_hypothesis_it_is_told_about", () => {
+    cb(dir, ["init"]);
+    measuring();
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["interrupt", "--hypothesis", "H2"]);
+    const list = cb(dir, ["hypothesis", "list"]).stdout;
+    assert.match(list, /H2 \[interrupted\]/);
+    assert.match(list, /H1 \[open\]/);
+  });
+
+  it("prefers_the_fix_in_progress_over_the_last_experiment", () => {
+    cb(dir, ["init"]);
+    measuring();
+    cb(dir, ["hypothesis", "confirm", "H1"]);
+    cb(dir, ["transition", "patch", "--hypothesis", "H1"]);
+    cb(dir, ["interrupt"]);
+    assert.match(cb(dir, ["hypothesis", "list"]).stdout, /H1 \[interrupted\]/);
+    const state = JSON.parse(cb(dir, ["status", "--json"]).stdout);
+    assert.equal(state.activeFix, null);
+  });
+
+  it("says_plainly_when_there_was_no_hypothesis_to_mark", () => {
+    cb(dir, ["init"]);
+    const out = cb(dir, ["interrupt"]).stdout;
+    assert.match(out, /no hypothesis/);
+    assert.match(cb(dir, ["status"]).stdout, /STATE: HYPOTHESIZE/);
+  });
+
+  it("does_not_let_the_evidence_from_before_the_stop_confirm_it_afterwards", () => {
+    cb(dir, ["init"]);
+    measuring();
+    cb(dir, ["interrupt"]);
+    const refused = cb(dir, ["hypothesis", "confirm", "H1"], { expect: 1 });
+    assert.match(refused.stderr, /interrupted/);
+    assert.match(refused.stderr, /run it again/i);
+  });
+
+  it("takes_the_confirmation_once_the_experiment_has_been_run_again", () => {
+    cb(dir, ["init"]);
+    measuring();
+    cb(dir, ["interrupt"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, ["experiment", "record", "--hypothesis", "H1", "--command", "./bench",
+      "--exit", "0", "--classification", "supports"]);
+    assert.match(cb(dir, ["hypothesis", "confirm", "H1"]).stdout, /H1 confirmed/);
+  });
+});
+
+describe("what the agent is told about a stop it did not ask for", () => {
+  let dir;
+  const HOOK = fileURLToPath(new URL("../hooks/pre-tool-use.mjs", import.meta.url));
+  /** The PreToolUse hook as Claude Code runs it: a process, an event on stdin. */
+  const preToolUse = (tool, input) =>
+    execFileSync(process.execPath, [HOOK], {
+      encoding: "utf8",
+      input: JSON.stringify({ tool_name: tool, tool_input: input, cwd: dir }),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+  beforeEach(() => {
+    dir = repo().dir;
+    cb(dir, ["init"]);
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+  });
+
+  it("denies_the_first_tool_call_after_an_interrupt_and_says_why", () => {
+    cb(dir, ["interrupt"]);
+    const answer = JSON.parse(preToolUse("Read", { file_path: "source.txt" }));
+    assert.equal(answer.hookSpecificOutput.permissionDecision, "deny");
+    const why = answer.hookSpecificOutput.permissionDecisionReason;
+    assert.match(why, /interrupt/i);
+    assert.match(why, /H1/);
+    assert.match(why, /HYPOTHESIZE/);
+  });
+
+  it("judges_the_next_call_normally_once_the_stop_has_been_delivered", () => {
+    cb(dir, ["interrupt"]);
+    preToolUse("Read", { file_path: "source.txt" });
+    // A read is permitted in HYPOTHESIZE, and a permitted call is an empty answer.
+    assert.equal(preToolUse("Read", { file_path: "source.txt" }).trim(), "");
+  });
+
+  it("still_refuses_what_the_state_refuses_on_the_call_after", () => {
+    cb(dir, ["interrupt"]);
+    preToolUse("Read", { file_path: "source.txt" });
+    const answer = JSON.parse(preToolUse("Write", { file_path: "source.txt" }));
+    assert.equal(answer.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(answer.hookSpecificOutput.permissionDecisionReason, /mutation/);
+  });
+
+  it("says_nothing_extra_when_no_interrupt_has_happened", () => {
+    assert.equal(preToolUse("Read", { file_path: "source.txt" }).trim(), "");
+  });
+});
+
+describe("what an interrupt will not guess at", () => {
+  let dir;
+  beforeEach(() => {
+    dir = repo().dir;
+    cb(dir, ["init"]);
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+  });
+
+  it("marks_nothing_where_two_explanations_are_still_competing", () => {
+    // HYPOTHESIZE exists to hold more than one explanation at a time, and an interrupt is
+    // not a verdict on all of them. Naming one is the caller's job.
+    const out = cb(dir, ["interrupt"]).stdout;
+    assert.match(out, /no hypothesis/);
+    const list = cb(dir, ["hypothesis", "list"]).stdout;
+    assert.match(list, /H1 \[open\]/);
+    assert.match(list, /H2 \[open\]/);
+  });
+});
+
+describe("what the status says about a claim against someone else", () => {
+  let dir;
+  const EXTERNAL = [
+    "hypothesis", "add",
+    "--claim", "tsc retains every program it has ever parsed",
+    "--because", "peak memory never falls between builds",
+    "--falsifier", "a build with one file peaks the same",
+    "--blames", "external",
+  ];
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); });
+
+  it("says_nothing_about_external_claims_where_there_are_none", () => {
+    cb(dir, [...HYPOTHESIS]);
+    assert.doesNotMatch(cb(dir, ["status"]).stdout, /EXTERNAL/);
+  });
+
+  it("names_what_each_external_claim_is_still_missing", () => {
+    cb(dir, EXTERNAL);
+    assert.match(cb(dir, ["status"]).stdout, /EXTERNAL: H1 ungrounded, no verdict/);
+  });
+
+  it("shows_a_cited_claim_with_the_verdict_it_carries", () => {
+    cb(dir, [...EXTERNAL, "--cites", "source.txt:1"]);
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "PLAUSIBLE"]);
+    assert.match(cb(dir, ["status"]).stdout, /EXTERNAL: H1 cited, PLAUSIBLE/);
+  });
+
+  it("says_when_an_uncited_claim_is_waiting_on_a_person", () => {
+    cb(dir, [...EXTERNAL, "--undocumented", "searched the changelog and the tracker"]);
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "PLAUSIBLE"]);
+    assert.match(cb(dir, ["status"]).stdout, /H1 undocumented, PLAUSIBLE, unacknowledged/);
+    cb(dir, ["acknowledge", "H1"]);
+    assert.match(cb(dir, ["status"]).stdout, /H1 undocumented, PLAUSIBLE, acknowledged/);
+  });
+
+  it("counts_the_interrupted_claims_beside_the_open_ones", () => {
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["interrupt"]);
+    assert.match(cb(dir, ["status"]).stdout, /HYPOTHESES: 1 recorded, 0 open, 0 confirmed, 1 interrupted/);
+  });
+
+  it("says_a_stop_is_waiting_to_be_delivered", () => {
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["interrupt"]);
+    assert.match(cb(dir, ["status"]).stdout, /INTERRUPTED: in OBSERVE, H1, not yet delivered/);
   });
 });

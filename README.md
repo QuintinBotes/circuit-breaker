@@ -61,13 +61,20 @@ claude plugin marketplace update circuit-breaker
 `VERIFY` does not lead to `PATCH`. A failed verification sends the session back to a
 hypothesis, which is the reset that stops the second patch for the same symptom.
 
+A hypothesis is `open`, `confirmed`, `rejected` or `interrupted`. The fourth is not a
+verdict: it means a run was stopped and nothing came back.
+
 ## Commands
 
 ```sh
 cb init                              # start a session in OBSERVE
 cb status                            # where the session is
-cb hypothesis add --claim <c> --because <b> --falsifier <f>
+cb hypothesis add --claim <c> --because <b> --falsifier <f> --blames self|external \
+                  [--cites <url|path[:line]>] [--undocumented <text>]
 cb hypothesis list | confirm <id> | reject <id>
+cb hypothesis ground <id> --cites <c> | --undocumented <text>
+cb hypothesis verdict <id> --verdict FALSIFIED|UNSUPPORTED|PLAUSIBLE|SUPPORTED \
+                          [--unresolved <text>]
 cb experiment record --hypothesis <id> --command <cmd> --exit <n> \
                      --classification supports|falsifies|inconclusive [--artifact <path>]
 cb transition <state> [--hypothesis <id>]
@@ -75,6 +82,13 @@ cb gate <id> --result pass|fail|unknown [--evidence <text>]
 cb reproduce --command <cmd>         # name the symptom check; runnable in any state
 cb scratch [<glob>]                  # paths whose churn is not a change
 cb check-stop [--message <report>]   # 0 supported, 3 honestly unverified, 2 unsupported
+```
+
+Three more are a person's to type, and the gate refuses them to the agent in every spelling:
+
+```sh
+cb acknowledge <id>                  # permit a patch for an uncited external claim
+cb interrupt [--hypothesis <id>]     # stop the session where it stands
 cb end                               # close the session
 ```
 
@@ -101,6 +115,70 @@ tool boundary, which is before the next external thing happens. The same works f
 terminal while a turn is running: `cb transition suspended` writes the state and the
 `PreToolUse` hook reads it before the agent's next action. Binding it to a key is not
 possible, because Claude Code keybindings map keys to named actions and none submits text.
+
+## Blaming something that is not your code
+
+Every hypothesis says who it blames, and there is no default:
+
+```sh
+cb hypothesis add --claim "tsc retains every program it parses" \
+  --because "peak memory never falls between builds" \
+  --falsifier "a build with one file peaks the same" \
+  --blames external
+```
+
+`self` means the defect is in this code, including in how it uses a dependency. `external`
+means the defect is inside the dependency, the compiler, the runtime, the standard library
+or the operating system. Most claims that name a library are still `self`: *"our per-file
+snapshots retain TypeScript programs"* blames the snapshot lifetime, not TypeScript.
+
+Nothing reads the claim text to decide this. A list of well-known names matched against the
+prose would escalate exactly the careful hypothesis above, and a model willing to answer
+`self` dishonestly would write "the build step" instead of "tsc". Asking is the mechanism.
+
+An `external` claim costs three things a `self` claim does not:
+
+| Before | What it needs | Why |
+|---|---|---|
+| EXPERIMENT | `--cites <url\|path[:line]>` or `--undocumented "<what you searched>"` | Measuring against a claim nobody has grounded is how a session spends a day on the wrong system |
+| PATCH | A recorded skeptic verdict | The claim has to survive somebody trying to break it before it becomes a change |
+| PATCH, uncited | `cb acknowledge <id>`, typed by a person | An uncited claim that a vetted system is broken is the one place a human is cheap and worth asking |
+
+A citation is checked for shape, not content: an `http(s)` URL, or a path that resolves in
+the tree with an optional `:line`. Prose is refused. Nothing can know whether
+`node_modules/typescript/lib/tsc.js:41022` says what the claim says — what the gate knows is
+that somebody went and found a specific line, and that a reader can follow it.
+
+`FALSIFIED` and `UNSUPPORTED` reject the hypothesis as they are recorded, rather than asking
+you to go and reject it. `PLAUSIBLE` and `SUPPORTED` both permit a patch and both stay on
+the record; requiring `SUPPORTED` would only teach a model to fish for it.
+
+An uncited external claim is not a dead end. It can be investigated, experimented on and
+carried to VERIFY as an investigation that changes nothing. It is patching around it that
+waits for a person.
+
+## Being stopped by somebody else
+
+```sh
+cb interrupt            # from a second terminal, while a turn is running
+```
+
+The session drops to HYPOTHESIZE, any fix in progress is cleared, and one hypothesis is
+marked `interrupted` — which is neither `confirmed` nor `rejected`. It cannot be confirmed
+by evidence recorded before the stop; run the experiment again and it is live again.
+
+Which hypothesis: the one named with `--hypothesis`, else the fix in progress, else the only
+open one, else the last one measured. Where two explanations are still competing it marks
+none and says so, because an interrupt is not a verdict on all of them.
+
+The next tool call after an interrupt is denied whatever it is, so the agent is told. The
+latency is one tool-call boundary, and there is no protocol word for this: a word typed at
+the prompt arrives between turns, which is not when an interrupt is needed.
+
+`cb interrupt` does not kill a running process, and cannot. Claude Code has nine hook events
+and none of them fires while a tool call is in flight, so the plugin never holds the
+subprocess. Ctrl+C is still the thing that stops a test run; `cb interrupt` is what gives
+stopping a consequence the ledger keeps.
 
 ## Verification
 
@@ -203,6 +281,10 @@ so "I looked, and nothing needs changing" can still put its evidence on the reco
 The skeptic is not independent. It shares the implementer's model and its priors. What
 protects an answer is the evidence packet and the reading it does, not a change of voice.
 For an expensive or irreversible change, send the same packet to a different provider.
+
+A session opened by an older version is refused rather than migrated. Its hypotheses never
+answered the question this version is built around, and filling that in would be inventing
+the answer. `cb end` then `cb init`.
 
 The state file is not a sandbox, and it is a discipline rather than a security boundary. An
 `EXPERIMENT` may run `node`, and `node` can write a file. What it buys is that the careless

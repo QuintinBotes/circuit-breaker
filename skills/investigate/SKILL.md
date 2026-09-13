@@ -48,11 +48,29 @@ cannot be shown to have fixed.
 cb hypothesis add \
   --claim "per-file snapshots retain TypeScript programs" \
   --because "peak memory scales with the number of open snapshots" \
-  --falsifier "per-project snapshots retain a similar program count"
+  --falsifier "per-project snapshots retain a similar program count" \
+  --blames self
 ```
 
 A claim with no falsifier is not a hypothesis, it is a preference. If you cannot say what
 would prove it wrong, you do not yet understand it well enough to test it.
+
+**Say who you are blaming, and read the answer twice.** `--blames self` means the defect is
+in this code, including in how it uses a dependency. The claim above names TypeScript and is
+still `self`: it blames the snapshot lifetime the caller chose, not the compiler. `external`
+means the defect is inside the compiler, the runtime, the standard library or the operating
+system, and it is the rarer answer by a long way.
+
+Answering `external` costs more, on purpose. Before you may experiment on it you have to
+name where the behaviour is written down — `cb hypothesis ground <id> --cites <url|path:line>`
+— or record that you looked and there was nothing to name, with `--undocumented "<what you
+searched>"`. Before you may patch around it you need a skeptic's verdict, and if you never
+found a citation you need a person to type `cb acknowledge <id>`, which you cannot type
+yourself.
+
+None of that is an obstacle to be got past. A well-vetted compiler being wrong is a real
+thing that happens and a rare thing, and the cost of the claim should match how often it is
+true. If the grounding is hard to produce, that is the gate working.
 
 **One hypothesis at a time, and prefer the experiment that could kill it** over the one that
 would confirm it. Confirming evidence is cheap and nearly always available.
