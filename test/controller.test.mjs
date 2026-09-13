@@ -1419,3 +1419,277 @@ describe("what the status says about a claim against someone else", () => {
     assert.match(cb(dir, ["status"]).stdout, /INTERRUPTED: in OBSERVE, H1, not yet delivered/);
   });
 });
+
+// ---------------------------------------------------------------------------------------
+// v2, attacked. Each of these was a way past a gate that had just been built.
+// ---------------------------------------------------------------------------------------
+
+describe("the ways past the external gate", () => {
+  let dir;
+  const EXTERNAL = [
+    "hypothesis", "add",
+    "--claim", "v8 never collects the retained maps",
+    "--because", "the heap grows across a forced gc",
+    "--falsifier", "a forced gc drops the retained set",
+    "--blames", "external",
+  ];
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); });
+
+  it("does_not_let_an_ungrounded_claim_collect_evidence_from_inside_experiment", () => {
+    // The grounding gate is on the way into EXPERIMENT. A session already in EXPERIMENT
+    // never transitions again, so the claim recorded there was never asked for grounding.
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, EXTERNAL);
+    const refused = cb(
+      dir,
+      ["experiment", "record", "--hypothesis", "H2", "--command", "./bench", "--exit", "0",
+        "--classification", "supports"],
+      { expect: 1 },
+    );
+    assert.match(refused.stderr, /H2/);
+    assert.match(refused.stderr, /--cites/);
+  });
+
+  it("does_not_let_an_acknowledgement_stand_in_for_grounding", () => {
+    // acknowledge answers "no citation was found". It is not an answer to "nobody looked".
+    cb(dir, EXTERNAL);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["hypothesis", "ground", "H1", "--cites", "source.txt"]);
+    cb(dir, ["transition", "experiment"]);
+    cb(dir, ["experiment", "record", "--hypothesis", "H1", "--command", "./bench", "--exit", "0",
+      "--classification", "supports"]);
+    cb(dir, ["hypothesis", "confirm", "H1"]);
+    cb(dir, ["hypothesis", "verdict", "H1", "--verdict", "PLAUSIBLE"]);
+    // Now strip the grounding the way a hand-edited ledger would, and try to buy it back.
+    const file = `${dir}/.claude/circuit-breaker/state.json`;
+    const state = JSON.parse(fs.readFileSync(file, "utf8"));
+    state.hypotheses[0].cites = null;
+    fs.writeFileSync(file, JSON.stringify(state, null, 2));
+    cb(dir, ["acknowledge", "H1"]);
+    const refused = cb(dir, ["transition", "patch", "--hypothesis", "H1"], { expect: 1 });
+    assert.match(refused.stderr, /ground/);
+  });
+
+  it("treats_a_hypothesis_with_no_blame_on_record_as_the_stricter_answer", () => {
+    // A ledger a hand-edit or a future bug left without the field must not be the way past
+    // the gate. Anything that does not say "self" is judged as though it said "external".
+    cb(dir, [...HYPOTHESIS]);
+    const file = `${dir}/.claude/circuit-breaker/state.json`;
+    const state = JSON.parse(fs.readFileSync(file, "utf8"));
+    delete state.hypotheses[0].blames;
+    fs.writeFileSync(file, JSON.stringify(state, null, 2));
+    cb(dir, ["transition", "hypothesize"]);
+    const refused = cb(dir, ["transition", "experiment"], { expect: 1 });
+    assert.match(refused.stderr, /H1/);
+  });
+
+  it("refuses_a_citation_that_points_at_a_directory", () => {
+    fs.mkdirSync(`${dir}/vendor`);
+    const refused = cb(dir, [...EXTERNAL, "--cites", "vendor"], { expect: 1 });
+    assert.match(refused.stderr, /not a file/);
+  });
+
+  it("takes_the_blame_however_it_is_capitalised", () => {
+    cb(dir, ["hypothesis", "add", "--claim", "c", "--because", "b", "--falsifier", "f",
+      "--blames", "External"]);
+    const state = JSON.parse(cb(dir, ["status", "--json"]).stdout);
+    assert.equal(state.hypotheses[0].blames, "external");
+  });
+});
+
+describe("the ways past an interrupt", () => {
+  let dir;
+  const measure = (id) =>
+    cb(dir, ["experiment", "record", "--hypothesis", id, "--command", "./bench", "--exit", "0",
+      "--classification", "supports"]);
+  beforeEach(() => {
+    dir = repo().dir;
+    cb(dir, ["init"]);
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["transition", "experiment"]);
+  });
+
+  it("does_not_let_a_second_stop_leave_the_first_ones_evidence_standing", () => {
+    // The re-run between two stops was itself interrupted. Only the status is checked when
+    // marking, so an already-interrupted claim kept the older timestamp and the middle
+    // experiment counted.
+    cb(dir, ["interrupt"]);
+    cb(dir, ["transition", "experiment"]);
+    measure("H1");
+    cb(dir, ["interrupt"]);
+    const refused = cb(dir, ["hypothesis", "confirm", "H1"], { expect: 1 });
+    assert.match(refused.stderr, /interrupted/);
+  });
+
+  it("says_why_a_hypothesis_it_was_told_about_was_not_marked", () => {
+    measure("H1");
+    cb(dir, ["hypothesis", "confirm", "H1"]);
+    cb(dir, ["transition", "patch", "--hypothesis", "H1"]);
+    cb(dir, ["transition", "verify"]);
+    cb(dir, ["transition", "hypothesize"]);
+    cb(dir, ["hypothesis", "reject", "H1"]);
+    const out = cb(dir, ["interrupt", "--hypothesis", "H1"]).stdout;
+    assert.match(out, /H1 is rejected/);
+  });
+});
+
+describe("names that are not commands", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("does_not_find_a_command_on_the_object_prototype", () => {
+    const refused = cb(dir, ["toString"], { expect: 1 });
+    assert.match(refused.stderr, /unknown command toString/);
+  });
+
+  it("does_not_find_a_refusal_on_the_object_prototype", () => {
+    // `HUMAN_ONLY[sub]` found Object.prototype.toString, which is truthy, so the gate denied
+    // with a reason that was a function and serialised to nothing at all.
+    const answer = cb(dir, ["check", "--tool", "Bash", "--command", "cb toString"]);
+    assert.equal(answer.code, 0);
+  });
+});
+
+describe("what happens when the ledger cannot be written", () => {
+  let dir;
+  const HOOK = fileURLToPath(new URL("../hooks/pre-tool-use.mjs", import.meta.url));
+  const preToolUse = () =>
+    execFileSync(process.execPath, [HOOK], {
+      encoding: "utf8",
+      input: JSON.stringify({
+        tool_name: "Read", tool_input: { file_path: "source.txt" }, cwd: dir,
+      }),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+  beforeEach(() => {
+    dir = repo().dir;
+    cb(dir, ["init"]);
+    cb(dir, [...HYPOTHESIS]);
+    cb(dir, ["interrupt"]);
+  });
+  afterEach(() => {
+    try { fs.chmodSync(`${dir}/.claude/circuit-breaker`, 0o755); } catch { /* already gone */ }
+  });
+
+  it("still_delivers_the_stop_when_the_flag_cannot_be_cleared", () => {
+    // Clearing the flag is a write, and a write can fail. If that failure escapes, the hook
+    // exits non-zero with nothing on stdout and the tool call proceeds: a stop lost to a
+    // full disk is a stop that did not happen.
+    fs.chmodSync(`${dir}/.claude/circuit-breaker`, 0o500);
+    const answer = JSON.parse(preToolUse());
+    assert.equal(answer.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(answer.hookSpecificOutput.permissionDecisionReason, /interrupted/i);
+  });
+});
+
+describe("commands that were given no argument at all", () => {
+  let dir;
+  before(() => { dir = repo().dir; cb(dir, ["init"]); cb(dir, [...HYPOTHESIS]); });
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("asks_for_the_hypothesis_grounding_is_for", () => {
+    const refused = cb(dir, ["hypothesis", "ground", "--cites", "source.txt"], { expect: 1 });
+    assert.match(refused.stderr, /which hypothesis/);
+  });
+
+  it("asks_for_the_hypothesis_a_verdict_is_about", () => {
+    const refused = cb(dir, ["hypothesis", "verdict", "--verdict", "SUPPORTED"], { expect: 1 });
+    assert.match(refused.stderr, /which hypothesis/);
+  });
+
+  it("asks_for_the_hypothesis_being_acknowledged", () => {
+    const refused = cb(dir, ["acknowledge"], { expect: 1 });
+    assert.match(refused.stderr, /which hypothesis/);
+  });
+});
+
+describe("the packet the skeptic is handed", () => {
+  let dir;
+  const HOOK = fileURLToPath(new URL("../hooks/user-prompt-submit.mjs", import.meta.url));
+  const submit = (prompt) => {
+    const out = execFileSync(process.execPath, [HOOK], {
+      encoding: "utf8",
+      input: JSON.stringify({ prompt, cwd: dir }),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return JSON.parse(out).hookSpecificOutput.additionalContext;
+  };
+
+  beforeEach(() => {
+    dir = repo().dir;
+    cb(dir, ["init"]);
+    cb(dir, ["hypothesis", "add", "--claim", "v8 never collects the retained maps",
+      "--because", "the heap grows across a forced gc",
+      "--falsifier", "a forced gc drops the retained set",
+      "--blames", "external", "--cites", "source.txt:1"]);
+  });
+
+  it("tells_the_skeptic_who_the_claim_blames_and_what_it_cites", () => {
+    // A reviewer asked to break a claim about a compiler needs to know the claim is about a
+    // compiler, and needs the citation, because checking whether it says what the claim says
+    // is the review.
+    const packet = submit("REFUTE H1");
+    assert.match(packet, /BLAMES: external/);
+    assert.match(packet, /source\.txt:1/);
+  });
+
+  it("asks_for_the_verdict_to_be_recorded_rather_than_acted_on_by_hand", () => {
+    const packet = submit("REFUTE H1");
+    assert.match(packet, /hypothesis verdict H1/);
+  });
+
+  it("says_when_a_claim_found_nothing_written_down", () => {
+    cb(dir, ["hypothesis", "add", "--claim", "the scheduler starves the worker",
+      "--because", "latency spikes on one core", "--falsifier", "pinning removes the spike",
+      "--blames", "external", "--undocumented", "searched the kernel changelog"]);
+    const packet = submit("REFUTE H2");
+    assert.match(packet, /NO DOCUMENTATION FOUND: searched the kernel changelog/);
+  });
+});
+
+describe("what the status says about a claim with no blame on record", () => {
+  let dir;
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); });
+
+  it("shows_the_claim_the_gate_is_about_to_stop", () => {
+    // The gates judge anything that does not say "self" as external. If the status line
+    // uses a different predicate, a person reading it cannot see what is blocking them.
+    cb(dir, [...HYPOTHESIS]);
+    const file = `${dir}/.claude/circuit-breaker/state.json`;
+    const state = JSON.parse(fs.readFileSync(file, "utf8"));
+    delete state.hypotheses[0].blames;
+    fs.writeFileSync(file, JSON.stringify(state, null, 2));
+    assert.match(cb(dir, ["status"]).stdout, /EXTERNAL: H1 ungrounded, no verdict/);
+  });
+});
+
+describe("a refusal you can paste", () => {
+  let dir;
+  const EXTERNAL = [
+    "hypothesis", "add", "--claim", "v8 never collects the retained maps",
+    "--because", "the heap grows across a forced gc",
+    "--falsifier", "a forced gc drops the retained set", "--blames", "external",
+  ];
+  beforeEach(() => { dir = repo().dir; cb(dir, ["init"]); });
+
+  it("names_the_hypothesis_in_the_command_it_tells_you_to_run", () => {
+    cb(dir, EXTERNAL);
+    cb(dir, ["transition", "hypothesize"]);
+    const refused = cb(dir, ["transition", "experiment"], { expect: 1 });
+    assert.match(refused.stderr, /hypothesis ground H1 --cites/);
+  });
+
+  it("falls_back_to_a_placeholder_where_more_than_one_is_missing", () => {
+    cb(dir, EXTERNAL);
+    cb(dir, EXTERNAL);
+    cb(dir, ["transition", "hypothesize"]);
+    const refused = cb(dir, ["transition", "experiment"], { expect: 1 });
+    assert.match(refused.stderr, /H1, H2/);
+    assert.match(refused.stderr, /hypothesis ground <id> --cites/);
+  });
+});

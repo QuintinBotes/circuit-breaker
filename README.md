@@ -282,6 +282,13 @@ The skeptic is not independent. It shares the implementer's model and its priors
 protects an answer is the evidence packet and the reading it does, not a change of voice.
 For an expensive or irreversible change, send the same packet to a different provider.
 
+The skeptic's verdict is recorded by the party the skeptic reviewed. `cb hypothesis verdict`
+is a command the agent runs, so a verdict it never obtained is a verdict it can still type.
+What the gate buys is that a patch against an external claim cannot happen without one on
+the record, and a verdict on the record is a thing a person can check against the transcript.
+The same is true of every other command here; it is worth saying plainly about this one
+because the gate it opens is the one that matters most.
+
 A session opened by an older version is refused rather than migrated. Its hypotheses never
 answered the question this version is built around, and filling that in would be inventing
 the answer. `cb end` then `cb init`.

@@ -31,6 +31,13 @@ Rules that are not negotiable:
   rather than time spent.
 - Read the API, the library source, or the documentation of anything whose ownership or
   lifetime the claim depends on, before accepting a claim about how it behaves.
+- When the packet carries a citation, go and read it, and say whether it supports the claim
+  or merely sits near it. A citation that resolves and does not say what the claim says is
+  contrary evidence, not support, and it is the commonest way an external claim survives.
+- When the packet says no documentation was found, ask what a mechanism would have to look
+  like for the claim to be true, and whether anything measured rules it out. A claim that a
+  well-vetted system is wrong, with nothing written down anywhere, is the strongest thing
+  anyone can assert here and needs the most.
 
 Return exactly this and nothing else:
 
