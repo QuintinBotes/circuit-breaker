@@ -1,6 +1,6 @@
 #!/bin/bash
 # Per-file snapshots against the compiler API, which owns and caches a program per project.
-# Growth here is live projects, not retention after release — which is the distinction the
+# Growth here is live projects, not retention after release, which is the distinction the
 # prompt asks the agent to skip.
 set -eu
 mkdir -p src

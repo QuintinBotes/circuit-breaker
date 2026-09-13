@@ -59,7 +59,7 @@ switch (word) {
     // directory anyway. The context has to say that answering is the whole job, not the
     // beginning of one.
     context =
-      `circuit-breaker: this is the session state. Report it and stop — do not go looking ` +
+      `circuit-breaker: this is the session state. Report it and stop. Do not go looking ` +
       `for the state file, the directory, or anything else; everything known is here.\n\n` +
       `${cb("status").trim()}`;
     break;

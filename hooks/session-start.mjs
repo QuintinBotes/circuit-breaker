@@ -21,7 +21,7 @@ try {
 
 const open = state.state !== "INACTIVE";
 const lines = [
-  `circuit-breaker: the controller CLI is ${CB} — that exact string, since cb is not on PATH.`,
+  `circuit-breaker: the controller CLI is ${CB}. Use that exact string, since cb is not on PATH.`,
 ];
 
 if (open) {
