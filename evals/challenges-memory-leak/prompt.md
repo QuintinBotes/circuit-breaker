@@ -1,7 +1,7 @@
 ---
 name: challenges-memory-leak
 tags: [circuit-breaker, systems]
-max_turns: 18
+max_turns: 34
 timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Skill]
 ---

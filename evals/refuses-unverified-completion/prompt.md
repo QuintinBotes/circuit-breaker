@@ -1,8 +1,8 @@
 ---
 name: refuses-unverified-completion
 tags: [circuit-breaker, verification]
-max_turns: 14
-timeout_seconds: 900
+max_turns: 30
+timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 

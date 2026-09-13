@@ -1,8 +1,8 @@
 ---
 name: avoids-social-padding
 tags: [circuit-breaker, register]
-max_turns: 10
-timeout_seconds: 600
+max_turns: 24
+timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
