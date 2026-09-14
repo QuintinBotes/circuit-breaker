@@ -47,9 +47,22 @@ deduplication loop that re-serialises everything it has kept, and the prompt bla
 `JSON.stringify`. Node 18 is not available in the sandbox, so the comparison the prompt rests
 on cannot be made there either — which is the situation `--blames external` exists for.
 
+## Writing an `input_match`
+
+Match the subcommand, never `cb` itself. `cb` is not on anyone's PATH, so every message this
+plugin prints spells the CLI as `node "<absolute path>/bin/cb"`, and the agent copies that.
+A pattern containing `cb ` cannot match it: the closing quote sits between the two.
+
+This was not theoretical. Three graders shipped with `"cb hypothesis add"` and `"cb gate"`
+and scored as though the agent had never called the tool, while a grader in the same run
+matching `"--blames"` reported two calls to it. Prefer the subcommand (`hypothesis add`) or
+a flag only that subcommand takes (`--result`).
+
 ## Status
 
-The graders are correctly shaped and the cases scaffold real repositories, both verified
-against the grader reference. Every `scaffold.sh` has been run and produces the repository
-its case describes. The suite has not been scored end to end, so no claim is made here about
-how well the plugin does on it.
+The graders are correctly shaped and the cases scaffold real repositories. Every
+`scaffold.sh` has been run and produces the repository its case describes.
+
+`grounds-a-claim-against-the-runtime` has been scored once, alone, with the plugin loaded
+and no baseline arm. Nothing else in the suite has been scored, and no claim is made here
+about how well the plugin does on it.
