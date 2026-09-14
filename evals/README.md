@@ -55,6 +55,19 @@ deduplication loop that re-serialises everything it has kept, and the prompt bla
 `JSON.stringify`. Node 18 is not available in the sandbox, so the comparison the prompt rests
 on cannot be made there either — which is the situation `--blames external` exists for.
 
+## What `tool_order` cannot say
+
+`tool_order` fails when the `after` tool never fires. It cannot express "if an edit happened,
+a hypothesis preceded it" — only "a hypothesis happened, and then an edit did". So an agent
+that records a cause and then correctly declines to patch scores the same as one that
+patched first.
+
+`grounds-a-claim-against-the-runtime` carried such a grader and it contradicted the case: the
+right answer there is that there is no regression to work around, so not editing is the pass.
+It was removed. `prevents-premature-patch` keeps its one, where the prompt asks for a fix and
+an edit is the expected shape — but a run where that agent rightly declines will still be
+marked failed, and that is the grader's limit rather than the run's.
+
 ## Writing an `input_match`
 
 Match the subcommand, never `cb` itself. `cb` is not on anyone's PATH, so every message this
@@ -71,8 +84,18 @@ a flag only that subcommand takes (`--result`).
 The graders are correctly shaped and the cases scaffold real repositories. Every
 `scaffold.sh` has been run and produces the repository its case describes.
 
-`grounds-a-claim-against-the-runtime` has been run twice, alone, at one run each, with the
-plugin loaded and no baseline arm: 0.727 and 0.455. The whole difference between them is
-whether the agent opened a session. Both runs passed both `llm` graders. Nothing else in the
-suite has been scored, and no claim is made here about how well the plugin does on any of
-it.
+The suite has been scored end to end once, at three runs per arm with the baseline:
+overall 0.813, and a mean delta of **-0.147**. The plugin arm was worse on three cases and
+better on none.
+
+That run is what found everything in the two sections above, and what found that
+`challenges-memory-leak` scaffolded a tree referencing two names it never defined. The
+agent read it, established the repository could not produce the symptom the prompt
+described, said so, and was marked down for not asking the question the case wanted. Those
+defects are fixed. The score is not re-measured, because a suite corrected after seeing what
+it scored cannot then be quoted as evidence for the thing it scored.
+
+What the run does say, on evidence that no grader change touches: across six plugin-arm runs
+of the two cases that check for it, the agent opened a session in two. Where it did not, the
+plugin is inert by design and the arm is a baseline run carrying extra context. Any future
+delta is mostly measuring that choice until the suite separates it.
