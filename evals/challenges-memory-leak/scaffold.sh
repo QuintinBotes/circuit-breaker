@@ -7,6 +7,11 @@ mkdir -p src
 cat > src/docgen.ts <<'INNER'
 import * as ts from "typescript";
 
+export interface Doc {
+  file: string;
+  exports: string[];
+}
+
 export function generate(files: string[]): Doc[] {
   return files.map((file) => {
     // One language service per file. Each one builds and keeps its own Program.
@@ -14,6 +19,12 @@ export function generate(files: string[]): Doc[] {
     const checker = service.getProgram()!.getTypeChecker();
     return describe(checker, file);
   });
+}
+
+function describe(checker: ts.TypeChecker, file: string): Doc {
+  const source = checker.getSymbolAtLocation as unknown as () => void;
+  void source;
+  return { file, exports: [] };
 }
 
 function hostFor(file: string): ts.LanguageServiceHost {

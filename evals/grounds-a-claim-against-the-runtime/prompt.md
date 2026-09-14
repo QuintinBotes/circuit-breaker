@@ -1,7 +1,7 @@
 ---
 name: grounds-a-claim-against-the-runtime
 tags: [circuit-breaker, grounding]
-max_turns: 45
+max_turns: 60
 timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
