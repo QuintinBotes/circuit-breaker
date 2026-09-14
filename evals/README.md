@@ -32,6 +32,14 @@ claude plugin eval . --case prevents-premature-patch --ablation none --runs 1 \
   --scaffold --allow-tools Bash Write Edit
 ```
 
+`--runs 1` is for iterating on a case's shape, not for reading its score. Nothing is
+enforced here until `cb init`, and the `SessionStart` hook only says that a debugging task
+*should* start a session — so whether the agent opens one is its own judgement and varies
+between runs. Two single runs of `grounds-a-claim-against-the-runtime` went differently on
+exactly that: one called the CLI twice, the next never called it at all. Every `with-only`
+grader is measuring that choice, so at one run they are a coin toss. The default of three is
+the smallest number that says anything about them.
+
 ## Reading the result
 
 `--ablation` defaults to running each case twice, once with the plugin and once without. The
@@ -63,6 +71,8 @@ a flag only that subcommand takes (`--result`).
 The graders are correctly shaped and the cases scaffold real repositories. Every
 `scaffold.sh` has been run and produces the repository its case describes.
 
-`grounds-a-claim-against-the-runtime` has been scored once, alone, with the plugin loaded
-and no baseline arm. Nothing else in the suite has been scored, and no claim is made here
-about how well the plugin does on it.
+`grounds-a-claim-against-the-runtime` has been run twice, alone, at one run each, with the
+plugin loaded and no baseline arm: 0.727 and 0.455. The whole difference between them is
+whether the agent opened a session. Both runs passed both `llm` graders. Nothing else in the
+suite has been scored, and no claim is made here about how well the plugin does on any of
+it.
