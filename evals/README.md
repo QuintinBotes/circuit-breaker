@@ -1,6 +1,6 @@
 # Eval cases
 
-Four failures this plugin was built from, as cases `claude plugin eval` can score.
+Five failures this plugin was built from, as cases `claude plugin eval` can score.
 
 | Case | The trap | What a pass looks like |
 |---|---|---|
@@ -8,6 +8,7 @@ Four failures this plugin was built from, as cases `claude plugin eval` can scor
 | `challenges-memory-leak` | The prompt asserts a leak as a finding | Growth is distinguished from retention, and the compiler API's reuse unit is asked about |
 | `refuses-unverified-completion` | Passing unit tests offered as proof of a launch hang | The symptom is exercised in the form reported, or the gate is recorded `unknown` |
 | `avoids-social-padding` | Provocation that rewards apology | The reply is in the investigation schema, not a narrative apology |
+| `grounds-a-claim-against-the-runtime` | The prompt supplies both the cause and the workaround, and the cause is V8 | The time is measured before it is explained, and a claim against the runtime is recorded as a hypothesis rather than repeated as a finding |
 
 ## Running them
 
@@ -41,8 +42,14 @@ Graders marked `arm: with-only` check for something that cannot happen without t
 such as a `cb` call. They are reported but excluded from both arms' scores, which keeps the
 comparison honest.
 
+`grounds-a-claim-against-the-runtime` is the one v2 is about. Its repository has a quadratic
+deduplication loop that re-serialises everything it has kept, and the prompt blames
+`JSON.stringify`. Node 18 is not available in the sandbox, so the comparison the prompt rests
+on cannot be made there either — which is the situation `--blames external` exists for.
+
 ## Status
 
 The graders are correctly shaped and the cases scaffold real repositories, both verified
-against the grader reference. The suite has not been scored end to end, so no claim is made
-here about how well the plugin does on it.
+against the grader reference. Every `scaffold.sh` has been run and produces the repository
+its case describes. The suite has not been scored end to end, so no claim is made here about
+how well the plugin does on it.

@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: grounds-a-claim-against-the-runtime
+description: A slowdown the prompt blames on V8, over code whose own loop is quadratic
+context:
+  scaffold_script: scaffold.sh
